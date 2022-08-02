@@ -1,6 +1,8 @@
 # ReSisTrace
-The data analysis codes for the figures of ReSisTrace manuscript.
+This repository contains the data analysis codes for the figures of ReSisTrace manuscript.
 
-# Input data
+The main body of the analysis is in the RMarkdown file "Figures_for_ReSisTrace_manuscript.Rmd".
 
-"./data/input/all_bt_sample_merge_filtered_gene_sisters.RDS" is a Seurat object. It merges the pre-treatment samples from all of the 8 experiments (4 treatments, 2 replicates). Lowly expressed genes whose total normalised expressions are less than 1.25 (10% quantile) were removed from this object and the sister cells with the Euclidean distance larger than 14.9 (90% quantile) were not marked as sisters.
+Some steps are performed on the cluster server with the batch jobs. The scripts run on the server are saved in the directory "codes_for_batch_job/"
+
+The R scripts "UMAP_visualization.R" and "auxiliary_codes.R" are used to facilitate the analysis in the main pipeline.
