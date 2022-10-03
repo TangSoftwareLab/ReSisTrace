@@ -13,6 +13,7 @@ library(plyr)
 library(tidyverse)
 library(readxl)
 library(ggpubr)
+library(rstatix)
 library(ggalt)
 library(ggrepel)
 library(ggforce)
@@ -763,6 +764,11 @@ p <- ggplot(plot_table, aes(x = Division, y = mean, fill = Division)) +
   geom_errorbar(
     aes(ymin = mean - sd, ymax = mean + sd, width = 0.2), color="black"
   ) +
+  geom_point(
+    data = data,
+    aes(x = Division, y = Proportion),
+    position = position_jitterdodge(jitter.width = 2)
+  ) +
   scale_fill_manual(values = col) +
   labs(
     x = "Division(s)",
@@ -782,7 +788,8 @@ ggsave(
 
 ## B2: Counts of lineages in the BT sample
 
-The information about lineage labels for each samples are saved in "./data/input/preprocess/[sample_name]/lineage_label_tables.RData". After loading the ".RData" files, a data frame "l_b_fre_merge_filtered" will be in the working environment. This table contains the lineage label information for 
+The information about lineage labels for each samples are saved in "./data/input/preprocess/[sample_name]/lineage_label_tables.RData". After loading the ".RData" files, a data frame "l_b_fre_merge_filtered" will be in the working environment. This table contains the lineage label information for pre-treatment samples from different treatments.
+
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "red2", "blue2", "brown2", "green2","red2", "blue3")))
 sub_output_dir <- paste0(output_dir, "FigureS1/")
@@ -817,7 +824,7 @@ for (s in samples){
     label_bt = length(unique(l_b_fre_merge_filtered$lineage_id)),
     label_btat = length(unique(intersect(l_b_fre_merge_filtered$lineage_id, l_a_fre_merge_filtered$lineage_id)))
   )
-  plot_table <- tmp
+  plot_table <- rbind.data.frame(plot_table, tmp)
 }
 
 colnames(plot_table) <- c("Size_of_lineage", "Frequency", "Sample", "labelAT", "labelBT", "labelBTAT")
@@ -832,6 +839,7 @@ Visualization
 
 ```{r}
 plot_table$Frequency <- plot_table$Frequency * 100
+data <- plot_table
 plot_table <- plot_table %>%
   dplyr::group_by(Size_of_lineage) %>% 
   dplyr::summarise(
@@ -847,6 +855,11 @@ p <- ggplot(plot_table, aes(x = Size_of_lineage, y = mean, fill = Size_of_lineag
   geom_errorbar(
     aes(ymin = mean - sd, ymax = mean + sd, width = 0.2), color="black"
   ) +
+  geom_point(
+    data = data,
+    aes(x = Size_of_lineage, y = Frequency),
+    position = position_jitterdodge(jitter.width = 2)
+  )+
   scale_fill_manual(values = col) +
   labs(
     x = "Clone size",
@@ -859,7 +872,7 @@ p <- ggplot(plot_table, aes(x = Size_of_lineage, y = mean, fill = Size_of_lineag
     axis.text = element_text(size = 20, color = "black")
   )
 ggsave(
-  paste0(sub_output_dir, "FigureS1B_frequence_of_lineage_lable.pdf"),
+  paste0(sub_output_dir, "FigureS1B2_frequence_of_lineage_lable.pdf"),
   width = 5, height = 5
 )
 ```
@@ -1479,21 +1492,58 @@ count <- count2 %>%
   rbind.data.frame(count4)
 write.csv(count, paste0(sub_output_dir, "Figure2C_cell_count_table.csv"), row.names = FALSE)
 
-preR_A_control <- count$count[count$subclone == "A" & count$drugSens == "pre-resistant" & treatment == "Control"]
 preR_control <- sum(count$count[count$drugSens == "pre-resistant" & treatment == "Control"])
-preS_A_control <- count$count[count$subclone == "A" & count$drugSens == "pre-sensitive" & treatment == "Control"]
 preS_control <- sum(count$count[count$drugSens == "pre-sensitive" & treatment == "Control"])
 cat("preR vs preS control", "\n")
 
-for (t in c("Carboplatin", "Olaparib", "NK")){
-  cat(t, "\n")
-  cat("pre-resistant", "\n")
-  preR_A <- count$count[count$subclone == "A" & count$drugSens == "pre-resistant" & treatment == t]
-  preR_treatment <- sum(count$count[count$drugSens == "pre-resistant" & treatment == t])
-  p <- prop.test(x = c(preR_A, preR_A_control), n = c(preR_treatment, preR_control))
-  print(p)
+p_value <- NULL
+for (i in LETTERS[1:5]){
+  preR_sub_control <- count$count[count$subclone == i & count$drugSens == "pre-resistant" & treatment == "Control"]
+  preS_sub_control <- count$count[count$subclone == i & count$drugSens == "pre-sensitive" & treatment == "Control"]
+  for (t in c("Carboplatin", "Olaparib", "NK")){
+    preR_sub <- count$count[count$subclone == i & count$drugSens == "pre-resistant" & treatment == t]
+    preR_treatment <- sum(count$count[count$drugSens == "pre-resistant" & treatment == t])
+    p_r <- prop.test(x = c(preR_sub, preR_sub_control), n = c(preR_treatment, preR_control))
+    
+    tmp <- data.frame(
+      subclone = i,
+      treatment = t,
+      drugSens = "pre-resistant",
+      p_value = p_r$p.value,
+      prop_treat_or_preR = p_r$estimate[1],
+      prop_control_or_preS = p_r$estimate[2]
+    )
+    p_value <- rbind.data.frame(p_value, tmp)
+        
+    preS_sub <- count$count[count$subclone == i & count$drugSens == "pre-sensitive" & treatment == t]
+    preS_treatment <- sum(count$count[count$drugSens == "pre-sensitive" & treatment == t])
+    p_s <- prop.test(x = c(preS_sub, preS_sub_control), n = c(preS_treatment, preS_control))
+    
+    tmp <- data.frame(
+      subclone = i,
+      treatment = t,
+      drugSens = "pre-sensitive",
+      p_value = p_s$p.value,
+      prop_treat_or_preR = p_s$estimate[1],
+      prop_control_or_preS = p_s$estimate[2]
+    )
+    p_value <- rbind.data.frame(p_value, tmp)
+    
+    p_rs <- prop.test(x = c(preR_sub, preS_sub), n = c(preR_treatment, preS_treatment))
+    
+    tmp <- data.frame(
+      subclone = i,
+      treatment = t,
+      drugSens = "preR vs preS",
+      p_value = p_rs$p.value,
+      prop_treat_or_preR = p_rs$estimate[1],
+      prop_control_or_preS = p_rs$estimate[2]
+    )
+    p_value <- rbind.data.frame(p_value, tmp)
+  }
 }
 
+write.csv(p_value, paste0(sub_output_dir, "Figure2C_propoetion_test_table.csv"), row.names = FALSE)
 ```
 
 ## D: Correlation between CNV subclone DEG and preR vs preS DEG
@@ -1714,14 +1764,14 @@ if (!dir.exists(sub_output_dir)) {
 }
 ```
 
-```{r}
+```{r message=FALSE}
 data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS") 
 
 # options(scipen = 999)
 # memory.limit(size = 54000)
 data2 = data@assays$RNA@data
 
-sink(paste0(sub_output_dir, "FigureS3B_shannon.txt"))
+# sink(paste0(sub_output_dir, "FigureS3B_shannon.txt"))
 res = list()
 k = 1
 for (i in unique(data$sample)){
@@ -1737,12 +1787,6 @@ for (i in unique(data$sample)){
     k = k + 1
   }
 }
-sink()
-```
-
-Reference: https://rgraphs.com/how-to-create-a-cumulative-frequency-graph-in-r/
-
-```{r}
 tmp = do.call(rbind, res)
 tmp$treatment[tmp$treatment == "Carbo"] <- "Carboplatin"
 tmp$treatment[tmp$treatment == "ctrl"] <- "Control"
@@ -1750,6 +1794,15 @@ tmp$treatment = factor(tmp$treatment, levels = c("Carboplatin", "Olaparib", "NK"
 tmp$time_point[tmp$time_point == "BeforeTreatment"] <- "pre-treatment"
 tmp$time_point[tmp$time_point == "AfterTreatment"] <- "post-treatment"
 tmp$time_point = factor(tmp$time_point, levels = c("pre-treatment", "post-treatment"))
+write.csv(paste0(sub_output_dir, "FigureS3B_shannon.txt"), row.names = FALSE)
+# sink()
+```
+
+Reference: https://rgraphs.com/how-to-create-a-cumulative-frequency-graph-in-r/
+
+```{r message=FALSE}
+res <- read.table(paste0(sub_output_dir, "FigureS3B_shannon.txt"))
+
 values1 = c(blue, red, brown, green)
 
 fig1 = ggplot(tmp, aes(Freq, y = 1 - ..y.., color = time_point)) +
@@ -2048,6 +2101,7 @@ lseq <- function(from=1, to=100000, length.out=6) {
   exp(seq(log(from), log(to), length.out = length.out))
 }
 treatments <- c("Olaparib", "Carboplatin", "NK")
+conserve_gene_only <- TRUE
 ```
 
 ### load data
@@ -2136,8 +2190,6 @@ cor(data, method = "spearman", use = "complete")
 ```
 
 ```{r}
-conserve_gene_only <- TRUE
-
 if (conserve_gene_only){
   plot_table <- filter(log2FC_table, conserve_gene)
 } else {
@@ -2229,11 +2281,33 @@ res.df = rbind.data.frame(res1.df, res2.df)
 res.df$group <- factor(res.df$group, levels = c("TCGA", "COV362"))
 res.df$treatment <- factor(res.df$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
 
-ggplot(
+stat.test <- res.df[res.df$treatment !="Control",] %>%
+  group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "NK") %>%
+  add_xy_position(
+    x = "group", dodge = 0.8,
+    step.increase = 0.05
+  ) %>%
+  add_significance("p")
+stat.test
+
+p <- ggboxplot(
   res.df[res.df$treatment !="Control",],
-  aes(x = group, y = value, fill = treatment)
+  x = "group", y = "value", fill = "treatment",
+  outlier.shape = NA
 ) +
-  geom_boxplot() +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    bracket.nudge.y = -0.01,
+    size = 5
+  ) +
+  geom_point(
+    data = res.df[res.df$treatment !="Control",],
+    mapping = aes(x = group, y = value, fill = treatment),
+    position = position_jitterdodge(jitter.width = 0.5),
+    size = 0.7
+  ) +
   labs(x = "", y = "Correlation coefficient", fill = "")+
   theme_bw() + 
   theme(
@@ -2286,32 +2360,36 @@ table <- table %>%
   mutate(
     cell_viability = ifelse(sample == "COV362-GFP-M", read/NC_COV362_GFP_M, read/NC_COV362_B1_GFP_M) * 100
   )
+table$sample[table$sample == "COV362-GFP-M"] <- "COV362-control"
+table$sample[table$sample == "COV362-B1-GFP-M"] <- "COV362-BRCA1 restored"
+table$sample <- factor(table$sample, levels = c("COV362-control", "COV362-BRCA1 restored"))
 write.csv(table, paste0(sub_output_dir, "Figure3E_cell_viablility_COV362.csv"))
 ```
 
 ```{r}
-plot_table <- table %>%
-  dplyr::group_by(rate, sample) %>% 
-  dplyr::summarise(
-    mean = mean(cell_viability),
-    sd = sd(cell_viability)
-  )
-plot_table$sample[plot_table$sample == "COV362-GFP-M"] <- "COV362-control"
-plot_table$sample[plot_table$sample == "COV362-B1-GFP-M"] <- "COV362-BRCA1 restored"
-plot_table$sample <- factor(plot_table$sample, levels = c("COV362-control", "COV362-BRCA1 restored"))
 col = c("#B36981", "#659698")
-p <- ggplot(plot_table, aes(x = rate, y = mean, fill = sample)) +
-  geom_bar(
-    stat="identity",
-    color = "white",
-    position=position_dodge()
+
+stat.test <- table %>%
+  group_by(rate) %>%
+  t_test(cell_viability ~ sample) %>%
+  add_xy_position(
+    fun = "mean_sd", x = "rate", dodge = 0.8,
+    step.increase = 0.05) %>%
+  add_significance("p")
+
+p <- ggbarplot(
+  table,
+  x = "rate",
+  y = "cell_viability",
+  add = "mean_sd",
+  fill = "sample",
+  palette = col,
+  position = position_dodge(0.8)) +
+  stat_pvalue_manual(
+    stat.test,  label = "p.signif", tip.length = 0.01,
+    bracket.nudge.y = - 2, hide.ns = TRUE,
+    size = 5
   ) +
-  geom_errorbar(
-    aes(ymin=mean-sd, ymax=mean+sd),
-    width=.2,
-    position=position_dodge(.9)
-  ) +
-  scale_fill_manual(values = col) +
   labs(
     x = "NK : target cell",
     y = "Cell viability (%)"
@@ -2350,32 +2428,36 @@ table <- table %>%
   mutate(
     cell_viability = ifelse(sample == "Kura-GFP-H", read/NC_Kura_GFP_M, read/NC_Kura_B1_GFP_M) * 100
   )
+table$sample[table$sample == "Kura-GFP-H"] <- "KURAMOCHI-control"
+table$sample[table$sample == "Kura-B2-GFP-H"] <- "KURAMOCHI-BRCA2 restored"
+table$sample <- factor(table$sample, levels = c("KURAMOCHI-control", "KURAMOCHI-BRCA2 restored"))
 write.csv(table, paste0(sub_output_dir, "Figure3E_cell_viablility_Kura.csv"))
 ```
 
 ```{r}
-plot_table <- table %>%
-  dplyr::group_by(rate, sample) %>% 
-  dplyr::summarise(
-    mean = mean(cell_viability),
-    sd = sd(cell_viability)
-  )
-plot_table$sample[plot_table$sample == "Kura-GFP-H"] <- "KURAMOCHI-control"
-plot_table$sample[plot_table$sample == "Kura-B2-GFP-H"] <- "KURAMOCHI-BRCA2 restored"
-plot_table$sample <- factor(plot_table$sample, levels = c("KURAMOCHI-control", "KURAMOCHI-BRCA2 restored"))
 col = c("#B36981", "#659698")
-p <- ggplot(plot_table, aes(x = rate, y = mean, fill = sample)) +
-  geom_bar(
-    stat="identity",
-    color = "white",
-    position=position_dodge()
+
+stat.test <- table %>%
+  group_by(rate) %>%
+  t_test(cell_viability ~ sample) %>%
+  add_xy_position(
+    fun = "mean_sd", x = "rate", dodge = 0.8,
+    step.increase = 0.05) %>%
+  add_significance("p")
+
+p <- ggbarplot(
+  table,
+  x = "rate",
+  y = "cell_viability",
+  add = "mean_sd",
+  fill = "sample",
+  palette = col,
+  position = position_dodge(0.8)) +
+  stat_pvalue_manual(
+    stat.test,  label = "p.signif", tip.length = 0.01,
+  bracket.nudge.y = - 2, hide.ns = TRUE,
+  size = 5
   ) +
-  geom_errorbar(
-    aes(ymin=mean-sd, ymax=mean+sd),
-    width=.2,
-    position=position_dodge(.9)
-  ) +
-  scale_fill_manual(values = col) +
   labs(
     x = "NK : target cell",
     y = "Cell viability (%)"
@@ -2541,9 +2623,12 @@ data2.dist <- readRDS(paste0(sub_output_dir, "all_cell_distance.RDS"))
 
 ```{r eval = FALSE}
 res <- NULL
+res_large <- NULL
 for (t in treatments){
   tmp_res <- vector(mode = "list", length = 5)
   names(tmp_res) <- subclone
+  tmp_large <- vector(mode = "list", length = 5)
+  names(tmp_large) <- subclone
   for(i in subclone){
     # cat("\r",i)
     preS = which(
@@ -2569,16 +2654,21 @@ for (t in treatments){
     tmp = cbind(dist = c(distS, distR, distT),
     drugSens = c(rep(1, length(distS)), rep(2, length(distR)), rep(3, length(distT))),
     subclone = i)
+    tmp = data.frame(tmp)
+    tmp$drugSens[which(tmp$drugSens == 1)] = "pre-sensitive"
+    tmp$drugSens[which(tmp$drugSens == 2)] = "pre-resistant"
+    tmp$drugSens[which(tmp$drugSens == 3)] = "post-treatment"
+    tmp_large[[i]] = tmp
     if (nrow(tmp) > 100000){
       set.seed(123)
       tmp_small = tmp[sample(1:nrow(tmp), 100000),]
     } else {
       tmp_small <- tmp
     }
-    tmp_small = data.frame(tmp_small)
-    tmp_small$drugSens[which(tmp_small$drugSens == 1)] = "pre-sensitive"
-    tmp_small$drugSens[which(tmp_small$drugSens == 2)] = "pre-resistant"
-    tmp_small$drugSens[which(tmp_small$drugSens == 3)] = "post-treatment"
+    # tmp_small = data.frame(tmp_small)
+    # tmp_small$drugSens[which(tmp_small$drugSens == 1)] = "pre-sensitive"
+    # tmp_small$drugSens[which(tmp_small$drugSens == 2)] = "pre-resistant"
+    # tmp_small$drugSens[which(tmp_small$drugSens == 3)] = "post-treatment"
     tmp_res[[i]] = tmp_small
   }
   tmp_res = do.call("rbind", tmp_res)
@@ -2586,15 +2676,23 @@ for (t in treatments){
   tmp_res$subclone <- factor(tmp_res$subclone, levels = c("A","B","C","D","E"))
   tmp_res$dist <- as.numeric(tmp_res$dist)
   tmp_res$treatment <- t
+  tmp_large = do.call("rbind", tmp_large)
+  tmp_large$drugSens <- factor(tmp_large$drugSens, levels = c("pre-sensitive", "pre-resistant", "post-treatment"))
+  tmp_large$subclone <- factor(tmp_large$subclone, levels = c("A","B","C","D","E"))
+  tmp_large$dist <- as.numeric(tmp_large$dist)
+  tmp_large$treatment <- t
   if (is.null(res)){
     res <- tmp_res
+    res_large <- tmp_large
   } else {
     res <- rbind.data.frame(res, tmp_res)
+    res_large <- rbind.data.frame(res_large, tmp_large)
   }
 }
 View(res)
 
 write.csv(res, paste0(sub_output_dir, "cell_distance_table_by_treatment_for_plot.csv"))
+write.csv(res_large, paste0(sub_output_dir, "large_cell_distance_table_by_treatment_for_plot.csv"))
 ```
 
 ```{r}
@@ -2660,6 +2758,38 @@ for (t in treatments) {
     fig, width = 9, height = 4
   )
 }
+```
+
+two-way ANOVA
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "red2", "blue2", "brown2", "green2","red2", "blue3")))
+sub_output_dir <- paste0(output_dir, "FigureS5/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+```
+
+```{r}
+res_large <- read.csv(paste0(sub_output_dir, "large_cell_distance_table_by_treatment_for_plot.csv"))
+res_large <- filter(res_large, drugSens != "post-treatment")
+test <- aov(dist ~ drugSens + subclone + drugSens:subclone, data = res_large[res_large$treatment== "Carboplatin", ])
+summary(test)
+```
+
+```{r}
+test <- aov(dist ~ drugSens + subclone + drugSens:subclone, data = res_large[res_large$treatment== "NK", ])
+summary(test)
+```
+
+```{r}
+test <- aov(dist ~ drugSens + subclone + drugSens:subclone, data = res_large[res_large$treatment== "Control", ])
+summary(test)
+```
+
+```{r}
+test <- aov(dist ~ drugSens + subclone + drugSens:subclone, data = res_large[res_large$treatment== "Olaparib", ])
+summary(test)
 ```
 
 # Figure S6
@@ -3070,6 +3200,744 @@ fig = barplot(
   space = 0
 )
 dev.off()
+```
+
+# Drug combination discovery
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "red2", "blue2", "brown2", "green2","red2", "blue3")))
+sub_output_dir <- paste0(output_dir, "test/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+```
+
+```{r}
+data <- read.csv("./data/input/consensus_signature_drugs.csv", row.names = 1) %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  rownames_to_column("symbol")
+
+drug_anno <- read.csv("./data/input/drug_repurposing_hub_alldrugsanno.csv")
+
+length(setdiff(colnames(data)[-1], c(drug_anno$deprecated_broad_id, drug_anno$broad_id)))
+
+## Match drug by "broad_id"
+
+drug_anno_match <- drug_anno %>% 
+  filter(broad_id %in% colnames(data)) %>% 
+  mutate(match_id = broad_id)
+drug_anno_match
+drug_anno_match_deprecated_id <- drug_anno %>% 
+  filter(deprecated_broad_id %in% colnames(data),
+         !broad_id %in% drug_anno_match$broad_id) %>% 
+  mutate(match_id = deprecated_broad_id)
+drug_anno_match <- rbind.data.frame(drug_anno_match, drug_anno_match_deprecated_id)
+drug_anno_match$deprecated_broad_id[drug_anno_match$deprecated_broad_id == "NA-NA"] <- NA
+drug_anno_match <- drug_anno_match[!duplicated(drug_anno_match$broad_id), ]
+```
+
+
+```{r}
+drug_without_anno <- setdiff(colnames(data)[-1], c(drug_anno_match$broad_id, drug_anno_match_deprecated_id$deprecated_broad_id))
+write.csv(
+  data.frame(drug = drug_without_anno),
+  paste0(sub_output_dir, "drug_without_anno.csv"),
+  row.names = FALSE
+)
+```
+
+Table for log2FCs
+
+```{r}
+# log2FC for preR-preS-adjusted
+log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
+
+# Bootstrap and permutation P values
+p <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_Olaparib_control_bootstrap_permutation_summary.csv") %>% 
+  select(ensembl, symbol, boot_Olaparib_ctrl_p_value, perm_Olaparib_ctrl_p_value) %>% 
+  left_join(
+    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
+      select(ensembl, symbol, boot_Carbo_ctrl_p_value, perm_Carbo_ctrl_p_value),
+    by = c("ensembl", "symbol")
+  ) %>% 
+  left_join(
+    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
+      select(ensembl, symbol, boot_NK_ctrl_p_value, perm_NK_ctrl_p_value),
+    by = c("ensembl", "symbol")
+  )
+log2FC_table <- log2FC_table %>% 
+  left_join(p, by = c("ensembl", "symbol"))
+
+# posT-preT signature
+
+posT <- read.csv("./data/input/DEG/deg_at_bt_Carbo_control_wilcox.csv") %>% 
+  mutate(
+    Carbo_log2FC_posT_preT = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2,
+    Carbo_log2FC_posT_preT_adj = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
+    Carbo_posT_preT_p = (Carbo_1_p_val + Carbo_2_p_val) / 2,
+    Carbo_posT_preT_p_adj = (Carbo_1_p_val_adj + Carbo_2_p_val_adj) / 2
+  ) %>% 
+  select(
+    symbol, ensembl, Carbo_log2FC_posT_preT, Carbo_log2FC_posT_preT_adj,
+    Carbo_posT_preT_p, Carbo_posT_preT_p_adj
+  ) %>% 
+  left_join(
+    read.csv("./data/input/DEG/deg_at_bt_Olaparib_control_wilcox.csv") %>% 
+    mutate(
+      Olaparib_log2FC_posT_preT = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2,
+      Olaparib_log2FC_posT_preT_adj = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
+      Olaparib_posT_preT_p = (Olaparib_1_p_val + Olaparib_2_p_val) / 2,
+      Olaparib_posT_preT_p_adj = (Olaparib_1_p_val_adj + Olaparib_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, Olaparib_log2FC_posT_preT, Olaparib_log2FC_posT_preT_adj,
+      Olaparib_posT_preT_p, Olaparib_posT_preT_p_adj
+    ),
+    by = c("symbol", "ensembl")
+  ) %>% 
+  left_join(
+    read.csv("./data/input/DEG/deg_at_bt_NK_control_wilcox.csv") %>% 
+    mutate(
+      NK_log2FC_posT_preT = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2,
+      NK_log2FC_posT_preT_adj = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
+      NK_posT_preT_p = (NK_1_p_val + NK_2_p_val) / 2,
+      NK_posT_preT_p_adj = (NK_1_p_val_adj + NK_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, NK_log2FC_posT_preT, NK_log2FC_posT_preT_adj,
+      NK_posT_preT_p, NK_posT_preT_p_adj
+    ),
+    by = c("symbol", "ensembl")
+  )
+
+log2FC_table <- log2FC_table %>% 
+  left_join(posT, by = c("symbol", "ensembl"))
+
+# preR-preS signature without adjusting growth control
+
+preR <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
+  mutate(
+    Carbo_log2FC_preR_preS = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2,
+    Carbo_preR_preS_p = (Carbo_1_p_val + Carbo_2_p_val) / 2,
+    Carbo_preR_preS_p_adj = (Carbo_1_p_val_adj + Carbo_2_p_val_adj) / 2
+  ) %>% 
+  select(
+    symbol, ensembl, Carbo_log2FC_preR_preS, Carbo_preR_preS_p,
+    Carbo_preR_preS_p_adj
+  ) %>% 
+  left_join(
+    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Olaparib_control_bootstrap_permutation.csv") %>% 
+    mutate(
+      Olaparib_log2FC_preR_preS = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2,
+      Olaparib_preR_preS_p = (Olaparib_1_p_val + Olaparib_2_p_val) / 2,
+      Olaparib_preR_preS_p_adj = (Olaparib_1_p_val_adj + Olaparib_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, Olaparib_log2FC_preR_preS, Olaparib_preR_preS_p,
+      Olaparib_preR_preS_p_adj
+    ),
+    by = c("symbol", "ensembl")
+  ) %>% 
+  left_join(
+    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
+    mutate(
+      NK_log2FC_preR_preS = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2,
+      NK_preR_preS_p = (NK_1_p_val + NK_2_p_val) / 2,
+      NK_preR_preS_p_adj = (NK_1_p_val_adj + NK_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, NK_log2FC_preR_preS, NK_preR_preS_p, NK_preR_preS_p_adj
+    ),
+    by = c("symbol", "ensembl")
+  )
+
+log2FC_table <- log2FC_table %>% 
+  left_join(preR, by = c("symbol", "ensembl"))
+
+length(intersect(data$symbol, log2FC_table$symbol))
+```
+
+```{r}
+treatments <- c("Carbo", "NK", "Olaparib")
+data_merge <- data %>% 
+  left_join(
+    log2FC_table,
+    by = "symbol"
+  )
+drugs <- colnames(data)[-1]
+for (t in treatments) {
+  df <- NULL
+  for (i in drugs){
+    # preR-preS adjusted growth control
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp <- data.frame(
+      drug = i,
+      pearson_r_log2FC_preR_preS_adj = cor$estimate,
+      pearson_p_log2FC_preR_preS_adj = cor$p.value,
+      pearson_n_log2FC_preR_preS_adj = cor$parameter + 2
+    )
+    # preR-preS
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS = cor$parameter + 2
+    
+    # filter by bootstrap p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05, ]
+    # preR-preS adjusted growth control
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_adj_boot_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_adj_boot_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_adj_boot_p = cor$parameter + 2
+    # preR-preS
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_boot_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_boot_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_boot_p = cor$parameter + 2
+    
+    # filter by permutation p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05, ]
+    # preR-preS adjusted growth control
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_adj_perm_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_adj_perm_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_adj_perm_p = cor$parameter + 2
+    # preR-preS
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_perm_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_perm_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_perm_p = cor$parameter + 2
+    
+    # filter by preR-preS adjusted p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_preR_preS_p_adj")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_p_adj = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_p_adj = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_p_adj = cor$parameter + 2
+    
+    # filter by preR-preS p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_preR_preS_p")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_p = cor$parameter + 2
+    
+    # posT-preT
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_posT_preT")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT = cor$parameter + 2
+    
+    # posT-preT adjusted growth control
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_posT_preT_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT_adj = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT_adj = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT_adj = cor$parameter + 2
+    
+    # filter by posT-preT adjusted p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_posT_preT_p_adj")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_posT_preT")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT_p_adj = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT_p_adj = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT_p_adj = cor$parameter + 2
+    
+    # filter by posT-preT p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_posT_preT_p")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_posT_preT")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT_p = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT_p = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT_p = cor$parameter + 2
+    
+    df <- rbind.data.frame(df, tmp)
+  }
+  df <- df %>%
+    left_join(
+      drug_anno_match,
+      by = c("drug" = "match_id")
+    )
+  write.csv(
+    df,
+    paste0(
+      sub_output_dir,
+      t,
+      "_correlation_preR_vs_drug_signature.csv"
+      ),
+    row.names = FALSE)
+}
+```
+
+```{r}
+treatments <- c("Carbo", "NK", "Olaparib")
+data_merge <- data %>% 
+  left_join(
+    log2FC_table,
+    by = "symbol"
+  ) %>% 
+  filter(conserve_gene == TRUE)
+drugs <- colnames(data)[-1]
+for (t in treatments) {
+  df <- NULL
+  for (i in drugs){
+    # preR-preS adjusted growth control
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp <- data.frame(
+      drug = i,
+      pearson_r_log2FC_preR_preS_adj = cor$estimate,
+      pearson_p_log2FC_preR_preS_adj = cor$p.value,
+      pearson_n_log2FC_preR_preS_adj = cor$parameter + 2
+    )
+    # preR-preS
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS = cor$parameter + 2
+    
+    # filter by bootstrap p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05, ]
+    # preR-preS adjusted growth control
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_adj_boot_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_adj_boot_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_adj_boot_p = cor$parameter + 2
+    
+    # filter by permutation p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05, ]
+    # preR-preS adjusted growth control
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_adj_perm_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_adj_perm_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_adj_perm_p = cor$parameter + 2
+
+    # filter by permutation p < 0.05 and bootstrap p < 0.05
+    data_tmp <- data_merge[
+      data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05 &
+        data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05,
+      ]
+    # preR-preS adjusted growth control
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_adj_perm_boot_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_adj_perm_boot_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_adj_perm_boot_p = cor$parameter + 2
+    
+    # filter by preR-preS adjusted p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_preR_preS_p_adj")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_p_adj = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_p_adj = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_p_adj = cor$parameter + 2
+    
+    # filter by preR-preS p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_preR_preS_p")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_preR_preS_p = cor$estimate
+    tmp$pearson_p_log2FC_preR_preS_p = cor$p.value
+    tmp$pearson_n_log2FC_preR_preS_p = cor$parameter + 2
+    
+    # posT-preT
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_posT_preT")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT = cor$parameter + 2
+    
+    # posT-preT adjusted growth control
+    cor <- cor.test(
+      data_merge[[i]], data_merge[[paste0(t, "_log2FC_posT_preT_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT_adj = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT_adj = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT_adj = cor$parameter + 2
+    
+    # filter by posT-preT adjusted p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_posT_preT_p_adj")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_posT_preT")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT_p_adj = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT_p_adj = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT_p_adj = cor$parameter + 2
+    
+    # filter by posT-preT p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_posT_preT_p")]] < 0.05, ]
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_posT_preT")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$pearson_r_log2FC_posT_preT_p = cor$estimate
+    tmp$pearson_p_log2FC_posT_preT_p = cor$p.value
+    tmp$pearson_n_log2FC_posT_preT_p = cor$parameter + 2
+    
+    df <- rbind.data.frame(df, tmp)
+  }
+  df <- df %>%
+    left_join(
+      drug_anno_match,
+      by = c("drug" = "match_id")
+    )
+  write.csv(
+    df,
+    paste0(
+      sub_output_dir,
+      t,
+      "_correlation_preR_vs_drug_signature_sister_conserved.csv"
+      ),
+    row.names = FALSE)
+}
+```
+
+Visualization
+
+```{r}
+for (t in treatments){
+  # preR_preS
+  plot_table <- read.csv(
+    paste0(
+      sub_output_dir,
+      t,
+      "_correlation_preR_vs_drug_signature.csv"
+    )
+  ) %>% 
+    filter_at(vars(starts_with("pearson_p")), any_vars(. < 0.05)) %>% 
+    select(drug, starts_with("pearson_r")) %>% 
+    select(drug, contains("preR_preS"))
+  colnames(plot_table) <- gsub("pearson_r_log2FC_", "", colnames(plot_table))
+  pdf(file = paste0(sub_output_dir, t, "_preR_preS_heatmap.pdf"))
+  heatmap(
+    as.matrix(plot_table[, -1]), 
+    labRow = plot_table$drug,
+    cexCol = 0.8,
+    margins = c(10, 5)
+  )
+  dev.off()
+  
+  # preR_preS sister concordant gene
+  plot_table <- read.csv(
+    paste0(
+      sub_output_dir,
+      t,
+      "_correlation_preR_vs_drug_signature_sister_conserved.csv"
+    )
+  ) %>% 
+    filter_at(vars(starts_with("pearson_p")), any_vars(. < 0.05)) %>% 
+    select(drug, starts_with("pearson_r")) %>% 
+    select(drug, contains("preR_preS"))
+  colnames(plot_table) <- gsub("pearson_r_log2FC_", "", colnames(plot_table))
+  pdf(file = paste0(sub_output_dir, t, "_preR_preS_sister_conserved_heatmap.pdf"))
+  heatmap(
+    as.matrix(plot_table[, -1]),
+    labRow = plot_table$drug,
+    labCol = gsub("pearson_r_log2FC_", "", colnames(plot_table)[-1]),
+    cexCol = 0.8,
+    margins = c(10, 5)
+  )
+  dev.off()
+  
+  # posT_preT
+  plot_table <- read.csv(
+    paste0(
+      sub_output_dir,
+      t,
+      "_correlation_preR_vs_drug_signature.csv"
+    )
+  ) %>% 
+    filter_at(vars(starts_with("pearson_p")), any_vars(. < 0.05)) %>% 
+    select(drug, starts_with("pearson_r")) %>% 
+    select(drug, contains("posT_preT"))
+  colnames(plot_table) <- gsub("pearson_r_log2FC_", "", colnames(plot_table))
+  pdf(file = paste0(sub_output_dir, t, "_posT_preT_heatmap.pdf"))
+  heatmap(
+    as.matrix(plot_table[, -1]),
+    labRow = plot_table$drug,
+    labCol = gsub("pearson_r_log2FC_", "", colnames(plot_table)[-1]),
+    cexCol = 0.8,
+    margins = c(10, 5)
+  )
+  dev.off()
+  
+  # posT_preT sister concordant gene
+  plot_table <- read.csv(
+    paste0(
+      sub_output_dir,
+      t,
+      "_correlation_preR_vs_drug_signature_sister_conserved.csv"
+    )
+  ) %>% 
+    filter_at(vars(starts_with("pearson_p")), any_vars(. < 0.05)) %>% 
+    select(drug, starts_with("pearson_r")) %>% 
+    select(drug, contains("posT_preT"))
+  colnames(plot_table) <- gsub("pearson_r_log2FC_", "", colnames(plot_table))
+  pdf(file = paste0(sub_output_dir, t, "_posT_preT_sister_conserved_heatmap.pdf"))
+  heatmap(
+    as.matrix(plot_table[, -1]),
+    labRow = plot_table$drug,
+    labCol = gsub("pearson_r_log2FC_", "", colnames(plot_table)[-1]),
+    cexCol = 0.8,
+    margins = c(10, 5)
+  )
+  dev.off()
+  
+  # Venn
+  ## preR_preS
+  plot_table <- read.csv(
+    paste0(
+      sub_output_dir,
+      t,
+      "_correlation_preR_vs_drug_signature.csv"
+    )
+  ) %>% 
+    select(drug, contains("preR_preS")) %>% 
+    filter_at(vars(starts_with("pearson_p")), all_vars(. < 0.05)) %>% 
+    filter_at(vars(starts_with("pearson_r")), all_vars(. < 0))
+}
+```
+
+Validate with drug combination screening data from DrugComb
+
+```{r}
+DrugComb_drug <- read.csv("./data/input/DrugComb_all_drug.csv")
+olaparib_combo <- read.csv("./data/input/DrugComb_summary_Olaparib.csv") %>% 
+  filter(drug_col != "NULL")
+olaparib_combo <- olaparib_combo %>% 
+  mutate(drug = ifelse(drug_row == "Olaparib", drug_col, drug_row))
+drugs_combo <- DrugComb_drug %>% 
+  filter(dname %in% unique(olaparib_combo$drug)) %>% 
+  filter(inchikey %in% drug_anno_match$InChIKey)
+olaparib_combo <- olaparib_combo %>% 
+  select(block_id, drug, cell_line_name, css, synergy_zip, synergy_bliss, synergy_loewe, synergy_hsa, S_sum, quality, S_mea, S_max) %>% 
+  filter(drug %in% drugs_combo$dname) %>% 
+  left_join(select(drugs_combo, dname, inchikey), by = c("drug" = "dname"))
+
+olaparib_correlation <- read.csv("./data/output/test/Olaparib_correlation_preR_vs_drug_signature_sister_conserved.csv") %>% 
+  filter(InChIKey %in% olaparib_combo$inchikey) %>% 
+  select(InChIKey, starts_with("pearson"))
+
+olaparib_combo <- olaparib_combo %>% 
+  left_join(olaparib_correlation, by = c("inchikey" = "InChIKey"))
+
+plot_table <- olaparib_combo %>% 
+  select(
+    css, synergy_zip, synergy_bliss, synergy_loewe, synergy_hsa, S_sum,
+    S_mea, S_max, starts_with("pearson_r"))
+pdf(file = paste0(sub_output_dir, "Olaparib_DrugComb_pearson_correlation_sister_conserved_heatmap.pdf"))
+heatmap(
+  as.matrix(plot_table),
+  labRow = paste0(olaparib_combo$drug, "_", olaparib_combo$cell_line_name),
+  labCol = gsub("pearson_r_log2FC_", "", colnames(plot_table)),
+  cexCol = 0.8,
+  margins = c(10, 5)
+)
+dev.off()
+```
+
+```{r}
+write.csv(
+  cor(plot_table),
+  paste0(sub_output_dir, "Olaparib_DrugComb_pearson_correlation_sister_conserved.csv")
+)
+```
+
+```{r}
+# summarize across cell lines
+plot_table <- olaparib_combo %>% 
+  select(
+    drug, css, synergy_zip, synergy_bliss, synergy_loewe, synergy_hsa, S_sum,
+    S_mea, S_max, starts_with("pearson_r")) %>% 
+  group_by(drug) %>% 
+  summarise_if(is.numeric, mean, na.rm = TRUE)
+pdf(file = paste0(sub_output_dir, t, "_DrugComb_pearson_correlation_summarize_response_across_cells_sister_conserved_heatmap.pdf"))
+heatmap(
+  as.matrix(plot_table[, -1]),
+  labRow = plot_table$drug,
+  labCol = gsub("pearson_r_log2FC_", "", colnames(plot_table)[-1]),
+  cexCol = 0.8,
+  margins = c(10, 5)
+  )
+dev.off()
+```
+
+```{r}
+DrugComb_drug <- read.csv("./data/input/DrugComb_all_drug.csv")
+olaparib_combo <- read.csv("./data/input/DrugComb_summary_Olaparib.csv") %>% 
+  filter(drug_col != "NULL")
+olaparib_combo <- olaparib_combo %>% 
+  mutate(drug = ifelse(drug_row == "Olaparib", drug_col, drug_row))
+drugs_combo <- DrugComb_drug %>% 
+  filter(dname %in% unique(olaparib_combo$drug)) %>% 
+  filter(inchikey %in% drug_anno_match$InChIKey)
+olaparib_combo <- olaparib_combo %>% 
+  select(block_id, drug, cell_line_name, css, synergy_zip, synergy_bliss, synergy_loewe, synergy_hsa, S_sum, quality, S_mea, S_max) %>% 
+  filter(drug %in% drugs_combo$dname) %>% 
+  left_join(select(drugs_combo, dname, inchikey), by = c("drug" = "dname"))
+
+olaparib_correlation <- read.csv("./data/output/test/Olaparib_correlation_preR_vs_drug_signature.csv") %>% 
+  filter(InChIKey %in% olaparib_combo$inchikey) %>% 
+  select(InChIKey, starts_with("pearson"))
+
+olaparib_combo <- olaparib_combo %>% 
+  left_join(olaparib_correlation, by = c("inchikey" = "InChIKey"))
+
+plot_table <- olaparib_combo %>% 
+  select(
+    css, synergy_zip, synergy_bliss, synergy_loewe, synergy_hsa, S_sum,
+    S_mea, S_max, starts_with("pearson_r"))
+pdf(file = paste0(sub_output_dir, "Olaparib_DrugComb_pearson_correlation_heatmap.pdf"))
+heatmap(
+  as.matrix(plot_table),
+  labRow = paste0(olaparib_combo$drug, "_", olaparib_combo$cell_line_name),
+  labCol = gsub("pearson_r_log2FC_", "", colnames(plot_table)),
+  cexCol = 0.8,
+  margins = c(10, 5)
+)
+dev.off()
+```
+
+```{r}
+write.csv(
+  cor(plot_table),
+  paste0(sub_output_dir, "Olaparib_DrugComb_pearson_correlation.csv")
+)
+```
+
+```{r}
+# summarize across cell lines
+plot_table <- olaparib_combo %>% 
+  select(
+    drug, css, synergy_zip, synergy_bliss, synergy_loewe, synergy_hsa, S_sum,
+    S_mea, S_max, starts_with("pearson_r")) %>% 
+  group_by(drug) %>% 
+  summarise_if(is.numeric, mean, na.rm = TRUE)
+pdf(file = paste0(sub_output_dir, "Olaparib_DrugComb_pearson_correlation_summarize_response_across_cells_heatmap.pdf"))
+heatmap(
+  as.matrix(plot_table[, -1]),
+  labRow = plot_table$drug,
+  labCol = gsub("pearson_r_log2FC_", "", colnames(plot_table)[-1]),
+  cexCol = 0.8,
+  margins = c(10, 5)
+  )
+dev.off()
+```
+
+```{r}
+write.csv(
+  cor(plot_table[-1]),
+  paste0(sub_output_dir, "Olaparib_DrugComb_pearson_correlation_summarize_response_across_cells.csv")
+)
+```
+
+## L100 experiment condition for selected drugs
+
+```{r}
+candidates <- readxl::read_xlsx("./data/output/test/NK_correlation_preR_vs_drug_signature_sister_conserved.xlsx", sheet = 2) %>% 
+  rbind.data.frame(readxl::read_xlsx("./data/output/test/Olaparib_correlation_preR_vs_drug_signature_sister_conserved.xlsx", sheet = 2))
+
+L1000_cell <- data.table::fread("./data/input/L1000_treatment_information/phase_one/GSE92742_Broad_LINCS_cell_info.txt", header = TRUE) %>% 
+  rbind.data.frame(
+    data.table::fread("./data/input/L1000_treatment_information/phase_two/GSE92742_Broad_LINCS_cell_info.txt", header = TRUE))
+    
+L1000 <- data.table::fread("./data/input/L1000_treatment_information/phase_one/GSE92742_Broad_LINCS_inst_info.txt", header = TRUE) %>% 
+  select(pert_id, pert_iname, pert_dose, pert_dose_unit, pert_time, pert_time_unit, cell_id) %>% 
+  rbind.data.frame(
+    data.table::fread("./data/input/L1000_treatment_information/phase_two/GSE70138_Broad_LINCS_inst_info.txt", header = TRUE) %>% 
+      select(pert_id, pert_iname, pert_dose, pert_dose_unit, pert_time, pert_time_unit, cell_id)) %>%
+  filter(
+    pert_id %in% candidates$drug
+  ) %>% left_join(
+    L1000_cell %>% 
+      select(cell_id, primary_site, modification, sample_type, primary_site, original_growth_pattern),
+    by = "cell_id") %>% 
+  unique()
+
+L1000[L1000 == -666] <- NA
+writexl::write_xlsx(L1000, paste0(sub_output_dir, "L1000_treatment_condition.xlsx"))
+```
+
+```{r}
+
 ```
 
 # Session information
