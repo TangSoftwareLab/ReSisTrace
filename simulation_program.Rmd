@@ -1,0 +1,997 @@
+---
+title: "Simulation of ReSisTrace experiment"
+output: html_notebook
+author: "Shuyu Zheng"
+date: "`r Sys.Date()`"
+---
+
+```{r}
+library(tidyverse)
+library(Seurat)
+```
+
+# Color code
+
+```{r}
+blue = "#3C5488FF"
+red =  "#DC0000FF"
+green = "#00A087FF"
+brown = "#B09C85FF"
+
+blue2 <- "#4DBBD5FF"
+red2 <- "#E64B35FF"
+green2 <- "#91D1C2FF"
+brown2 <- "#7E6148FF"
+
+blue3 <- "#8491B4FF"
+red3 <- "#F39B7FFF"
+```
+
+# Parameters from KURAMOCHI experiment
+
+## Jun counted during cell culture:
+
+* Total number of cells for experiment at the beginning: 16000
+* Cell growth rate after treatments: 2^3 - 2^4
+* Cell growth rate without treatment (non-treatment control): 2^6
+* Killing rate of treatments: 70%-80%
+* Proportion of singletons, twins and quadruplets after doubling:
+
+```{r}
+table <- read.csv("./data/output/FigureS1/FigureS1A_cell_division_times.csv")
+table
+```
+
+```{r}
+output_dir <- "./data/output/simulation/"
+if (!dir.exists(output_dir)){
+  dir.create(output_dir)
+}
+```
+
+## Parameters from sequencing data:
+
+The number of qualified cells with lineage label from scRNA-seq (drop-out rate):
+
+```{r}
+data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+df <- data@meta.data %>% 
+  filter(!is.na(drugSens))
+cell_counts <- as.data.frame(table(df$sample, df$time_point))
+colnames(cell_counts) <- c("treatment", "time_point", "n_cell")
+cell_counts$treatment <- gsub("\\d", "", cell_counts$treatment)
+```
+
+The number of cells with lineage label before QC
+
+```{r}
+treatments <- c("Carbo", "NK", "Olaparib")
+cell_counts <- NULL
+for (t in treatments){
+  tmp_bt <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_1/bt_lineage_label_table_no_qc.csv")))
+  tmp_at <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_1/at_lineage_label_table_no_qc.csv")))
+  tmp <- data.frame(
+    treatment = t,
+    time_point = "AfterTreatment_no_qc",
+    n_cell = tmp_at
+  )
+  cell_counts <- rbind.data.frame(cell_counts, tmp)
+  tmp <- data.frame(
+    treatment = t,
+    time_point = "BeforeTreatment_no_qc",
+    n_cell = tmp_bt
+  )
+  cell_counts <- rbind.data.frame(cell_counts, tmp)
+  
+  tmp_bt <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_2/bt_lineage_label_table_no_qc.csv")))
+  tmp_at <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_2/at_lineage_label_table_no_qc.csv")))
+  tmp <- data.frame(
+    treatment = t,
+    time_point = "AfterTreatment_no_qc",
+    n_cell = tmp_at
+  )
+  cell_counts <- rbind.data.frame(cell_counts, tmp)
+  tmp <- data.frame(
+    treatment = t,
+    time_point = "BeforeTreatment_no_qc",
+    n_cell = tmp_bt
+  )
+  cell_counts <- rbind.data.frame(cell_counts, tmp)
+}
+
+cell_counts <- cell_counts %>%
+  group_by(treatment, time_point) %>% 
+  summarise(n_cell = mean(n_cell))
+
+write.csv(cell_counts, paste0(output_dir, "cell_counts_for_each_treatment_samples.csv"), row.names = FALSE)
+```
+
+```{r}
+cell_counts <- read.csv(paste0(output_dir, "cell_counts_for_each_treatment_samples.csv"))
+```
+
+# Define the simulation function
+
+```{r}
+ReSisTraceSimulation <- function(
+    Niter = 100, # number of iterations will be performed
+    SampleSize = 16000, # number of cells at the beginning of the experiment
+    
+    # GrowthRateAT = 2^6, # Cell growth rate after treatments or after cell culture
+    LineagePropAfterDoubling = c(42.46, 53.04, 4.5), # Proportion of singletons, twins and quadruplets after doubling:
+    NCellBT, # Number of cells in BT sample
+    NCellAT, # Number of cells in AT sample
+    # NtwinPairs,
+    KillRateTotal = 0.8,
+    # KillRateR = 1,
+    NCellPreSeq = 10000, # Number of cells after treatment and recovering. 
+    NCellSeq = 8000, # Number of cells loaed to scRNA-seq machine
+    seed = 123
+    ){
+  PreResistantProp <- 1 - KillRateTotal
+  # Containers for results from each iteration
+  Nsister.sample <- rep(0, Niter)
+  sister.preBT <- rep(0, Niter)
+  sister.preBT.false <- rep(0, Niter)
+  sister.BT <- rep(0, Niter)
+  sister.BT.false <- rep(0, Niter)
+  BTAT.labels <- rep(0, Niter)
+  unique.label.preAT <- rep(0, Niter)
+  unique.label.preBT <- rep(0, Niter)
+  label.preBTpreAT <- rep(0, Niter)
+  falsepreSLineageFromUnevenSplit <- rep(0, Niter)
+  unique.label.AT <- rep(0, Niter)
+  unique.label.BT <- rep(0, Niter)
+  preR.cell <- rep(0, Niter)
+  preS.cell <- rep(0, Niter)
+  label.preR <- rep(0, Niter)
+  label.preS <- rep(0, Niter)
+  trueR.cell <- rep(0, Niter)
+  trueS.cell <- rep(0, Niter)
+  falseS.cell <- rep(0, Niter)
+  falseR.cell <- rep(0, Niter)
+  twin.preBT <- rep(0, Niter)
+  twin.BT <- rep(0, Niter)
+  twin.BT.prop <- rep(0, Niter)
+  trueRpreRratio <- rep(0, Niter)
+  trueSpreSratio <- rep(0, Niter)
+  trueRpreSratio <- rep(0, Niter)
+  trueSpreRratio <- rep(0, Niter)
+  trueRpreRCell <- rep(0, Niter)
+  trueSpreSCell <- rep(0, Niter)
+  trueRpreSCell <- rep(0, Niter)
+  trueSpreRCell <- rep(0, Niter)
+  trueRpreR <- rep(0, Niter)
+  trueSpreS <- rep(0, Niter)
+  trueRpreS <- rep(0, Niter)
+  trueSpreR <- rep(0, Niter)
+  PPVCell <- rep(0, Niter)
+  NPVCell <- rep(0, Niter)
+  FORCell <- rep(0, Niter)
+  FDRCell <- rep(0, Niter)
+  TPRCell <- rep(0, Niter)
+  FPRCell <- rep(0, Niter)
+  FNRCell <- rep(0, Niter)
+  TNRCell <- rep(0, Niter)
+  BACell <- rep(0, Niter)
+  PPV <- rep(0, Niter)
+  NPV <- rep(0, Niter)
+  FOR <- rep(0, Niter)
+  FDR <- rep(0, Niter)
+  TPR <- rep(0, Niter)
+  FPR <- rep(0, Niter)
+  FNR <- rep(0, Niter)
+  TNR <- rep(0, Niter)
+  BA <- rep(0, Niter)
+  trueRpreRCellSingleton <- rep(0, Niter)
+  trueSpreSCellSingleton <- rep(0, Niter)
+  trueRpreSCellSingleton <- rep(0, Niter)
+  trueSpreRCellSingleton <- rep(0, Niter)
+  trueRpreRSingleton <- rep(0, Niter)
+  trueSpreSSingleton <- rep(0, Niter)
+  trueRpreSSingleton <- rep(0, Niter)
+  trueSpreRSingleton <- rep(0, Niter)
+  PPVCellSingleton <- rep(0, Niter)
+  NPVCellSingleton <- rep(0, Niter)
+  FORCellSingleton <- rep(0, Niter)
+  FDRCellSingleton <- rep(0, Niter)
+  TPRCellSingleton <- rep(0, Niter)
+  FPRCellSingleton <- rep(0, Niter)
+  FNRCellSingleton <- rep(0, Niter)
+  TNRCellSingleton <- rep(0, Niter)
+  BACellSingleton <- rep(0, Niter)
+  PPVSingleton <- rep(0, Niter)
+  NPVSingleton <- rep(0, Niter)
+  FORSingleton <- rep(0, Niter)
+  FDRSingleton <- rep(0, Niter)
+  TPRSingleton <- rep(0, Niter)
+  FPRSingleton <- rep(0, Niter)
+  FNRSingleton <- rep(0, Niter)
+  TNRSingleton <- rep(0, Niter)
+  BASingleton <- rep(0, Niter)
+  for(i in 1:Niter){
+    cat(i,"\r")
+    set.seed(seed + i)
+    # Set the initial labeled cell sample (singleton and twins)
+    # Nsingleton <- (SampleSize - 2 * NtwinPairs)
+    # Label for singletons
+    # sample.labels <- c(seq(1, Nsingleton))
+    # Append labels for twins
+    # if (NtwinPairs > 0){
+    #   sample.labels <- c(sample.labels, 
+    #                      rep(seq((Nsingleton + 1), (Nsingleton + NtwinPairs)),
+    #                          times = 2))
+    # }
+    sample.labels <- paste0("L", "_", seq(1, SampleSize))
+    
+    # Label the lineages with Sensitive or Resistant
+    Nresistant <- SampleSize * PreResistantProp
+    resistant.labels <- sample(unique(sample.labels), Nresistant)
+    sensitive.labels <- setdiff(sample.labels, resistant.labels)
+    sample.labels <- c(
+      paste0(resistant.labels, "_R"),
+      paste0(sensitive.labels, "_S")
+    )
+    
+    # # Record the number of sister cells in sample
+    # sister.sample <- table(sample.labels)
+    # Nsister.sample[i]<- length(sample.labels) - sum(sister.sample == 1)
+    # # Label IDs of the sisters in sample (Identifier for false sisters)
+    # sister.sample <- names(sister.sample)[sister.sample >= 2]
+    # 
+    
+    # Culture cells for 1x doubling time
+    NSingleton <- round(LineagePropAfterDoubling[1] / 100 * SampleSize , 0)
+    singleton.lable <- sample(sample.labels, NSingleton)
+    NTwin <- round(LineagePropAfterDoubling[2] /100 * SampleSize, 0)
+    twin.label <- sample(setdiff(sample.labels, singleton.lable), NTwin)
+    NQuadruplet <- SampleSize - NSingleton - NTwin
+    quadruplet.label <- setdiff(sample.labels, c(singleton.lable, twin.label))
+    
+    cellDouble <- seq(1:(NSingleton + 2 * NTwin + 4 * NQuadruplet)) # Unique IDs for each cell after doubling
+    cellDouble.label <- c(singleton.lable, rep(twin.label, 2), rep(quadruplet.label, 4)) # Name elements in cells with lineage label ID
+    
+    # split labeled cells into preBT and preAT
+    preBT <- sample(cellDouble, length(cellDouble) / 2, replace = FALSE)
+    preAT <- setdiff(cellDouble, preBT)
+    preBT.label <- cellDouble.label[preBT]
+    preAT.label <- cellDouble.label[preAT]
+    unique.label.preBT[i] <- length(unique(preBT.label))
+    unique.label.preAT[i] <- length(unique(preAT.label))
+    labels.preBTpreAT <- intersect(preBT.label, preAT.label)
+    label.preBTpreAT[i] <- length(labels.preBTpreAT)
+    label.preATNotPreBT <- setdiff(preAT.label, preBT.label)
+    # Number of sister cells in sample(pre-BT)
+    sister.preBT[i] <- length(preBT.label) - sum(table(preBT.label) == 1)
+    twin.preBT[i] <- sum(table(preBT.label) == 2)
+    # # Number of false sisters (1. Label ID are in sister.sample; 2. occurred
+    # # more than once)
+    # false.sister <- preBT.label[preBT.label %in% sister.sample]
+    # sister.preBT.false[i] <- length(false.sister) - sum(table(false.sister) == 1)
+    # 
+    # Cells passed the scRNA-seq and quality control with lineage label
+    if (NCellBT > length(preBT)) {
+      warning("NCellBT = ", NCellBT, ". It is larger than the cell number after recovering (", length(preBT), "). The NCellBT is automatically set as ", length(preBT), ".\n")
+      NCellBT <- length(preBT)
+    }
+    BT <- sample(preBT, NCellBT, replace = FALSE)
+    BT.label <- cellDouble.label[BT]
+    sister.BT[i] <- length(BT.label) - sum(table(BT.label) == 1)
+    twin.BT[i] <- sum(table(BT.label) == 2)
+    twin.BT.prop[i] <- sum(table(BT.label) == 2)/length(unique(BT.label))
+    # # False sisters in BT sample
+    # BT.false.sister <- BT.label[BT.label %in% sister.sample]
+    # sister.BT.false[i] <- length(BT.false.sister) - sum(table(BT.false.sister) == 1)
+    
+    # AT treated by drugs and KillRateTotal of cells are died. Resistant cells dead following the KillRateR
+    preATR.label <- preAT.label[endsWith(preAT.label, "_R")]
+    #preATS.label <-  preAT.label[endsWith(preAT.label, "_S")]
+    
+    ## Add treatment
+    # ATR.label <- sample(preATR.label, length(preATR.label) * (1 - KillRateR), replace = FALSE)
+    # NATS <- round(length(preAT) * (1 - KillRateTotal) - length(ATR.label))
+    # if (length(preATS.label) <= NATS){
+    #   ATS.label <- preATS.label
+    # } else {
+    #   ATS.label <- sample(preATS.label, NATS)
+    # }
+    # AT.label.treat <- c(ATR.label, ATS.label)
+    
+    # After treatment all resistant cells survived and all sensitive
+    AT.label.treat <- preATR.label
+    
+    ## Recover the cells after treatment
+    GrowthRateAT <- round(NCellPreSeq / length(AT.label.treat))
+    AT.label.recover <- rep(AT.label.treat, GrowthRateAT)
+    AT.cell.recover <- seq(1, length(AT.label.recover))
+    
+    ## Sampling cells for scRNA-seq
+    if (NCellSeq > length(AT.label.recover)) {
+      warning("NCellSeq = ", NCellSeq, ". It is larger than the cell number after recovering (", length(AT.label.recover), "). The NCellSeq is automatically set as ", length(AT.label.recover), ".\n")
+      NCellSeq <- length(AT.label.recover)
+    }
+    
+    AT.cell.seq <- sample(AT.cell.recover, NCellSeq, replace = FALSE)
+    
+    ## Cells passed the scRNA-seq and quality control with lineage label
+    if (NCellAT > NCellSeq) {
+      warning("NCellAT = ", NCellAT, ". It is larger than the cell number after recovering (", NCellSeq, "). The NCellAT is automatically set as ", NCellSeq, ".\n")
+      NCellAT <- NCellSeq
+    }
+    AT <- sample(AT.cell.seq, NCellAT, replace = FALSE)
+    AT.label <- AT.label.recover[AT]
+    
+    BTAT.label <- intersect(BT.label, AT.label)
+    BTAT.labels[i] <- length(BTAT.label)
+    
+    unique.label.AT[i] <- length(unique(AT.label)) - length(BTAT.label)
+    unique.label.BT[i] <- length(unique(BT.label)) - length(BTAT.label)
+
+    # Number of pre-resistant, pre-sensitive, resistant, new cells
+    preR.cell[i] <- sum(BT.label %in% BTAT.label)
+    preS.cell[i] <- length(BT.label) - preR.cell[i]
+    preR.label <- BT.label[BT.label %in% BTAT.label]
+    preS.label <- BT.label[!BT.label %in% BTAT.label]
+    label.preR[i] <- length(unique(preR.label))
+    label.preS[i] <- length(unique(preS.label))
+    
+    preR.lineage <- unique(preR.label)
+    preS.lineage <- unique(preS.label)
+    
+    trueRpreR[i] <- sum(endsWith(preR.lineage, "_R")) # TP lineage
+    trueSpreS[i] <- sum(endsWith(preS.lineage, "_S")) # TN lineage
+    trueRpreS[i] <- sum(endsWith(preS.lineage, "_R")) # FN lineage
+    trueSpreR[i] <- sum(endsWith(preR.lineage, "_S")) # FP lineage
+    
+    trueRpreRCell[i] <- sum(endsWith(preR.label, "_R")) # TP
+    trueSpreSCell[i] <- sum(endsWith(preS.label, "_S")) # TN
+    trueRpreSCell[i] <- sum(endsWith(preS.label, "_R")) # FN
+    trueSpreRCell[i] <- sum(endsWith(preR.label, "_S")) # FP
+    falsepreSLineageFromUnevenSplit[i] <- length(intersect(AT.label, label.preATNotPreBT))
+    
+    # Singletons in BT sample
+    singleton.BT.lable <- names(table(BT.label)[table(BT.label) == 1])
+    preR.lineage.singleton <- intersect(preR.label, singleton.BT.lable)
+    preS.lineage.singleton <- intersect(preS.label, singleton.BT.lable)
+    trueRpreRSingleton[i] <- sum(endsWith(preR.lineage.singleton, "_R")) # TP lineage
+    trueSpreSSingleton[i] <- sum(endsWith(preS.lineage.singleton, "_S")) # TN lineage
+    trueRpreSSingleton[i] <- sum(endsWith(preS.lineage.singleton, "_R")) # FN lineage
+    trueSpreRSingleton[i] <- sum(endsWith(preR.lineage.singleton, "_S")) # FP lineage
+    
+    preR.label.singleton <- preR.label[preR.label %in% singleton.BT.lable]
+    preS.label.singleton <- preS.label[preS.label %in% singleton.BT.lable]
+    trueRpreRCellSingleton[i] <- sum(endsWith(preR.label.singleton, "_R")) # TP
+    trueSpreSCellSingleton[i] <- sum(endsWith(preS.label.singleton, "_S")) # TN
+    trueRpreSCellSingleton[i] <- sum(endsWith(preS.label.singleton, "_R")) # FN
+    trueSpreRCellSingleton[i] <- sum(endsWith(preR.label.singleton, "_S")) # FP
+    
+    # Metrices from [contingency table](https://en.wikipedia.org/wiki/Precision_and_recall)
+    ## For lineages
+    PPV[i] <- trueRpreR[i] / (trueRpreR[i] + trueSpreR[i]) # TP/(TP + FP)
+    NPV[i] <- trueSpreS[i] / (trueSpreS[i] + trueRpreS[i]) # TN/(FN + TN)
+    FOR[i] <- trueRpreS[i] /(trueSpreS[i] + trueRpreS[i]) # FN/(FN + TN)
+    FDR[i] <- trueSpreR[i] / (trueRpreR[i] + trueSpreR[i]) # FP/(TP + FP)
+    TPR[i] <- trueRpreR[i] / (trueRpreR[i] + trueRpreS[i]) # TP / (TP + FN)
+    FPR[i] <- trueSpreR[i] / (trueSpreR[i] + trueSpreS[i]) # FP / (FP + TN)
+    FNR[i] <- trueRpreS[i] / (trueRpreR[i] + trueRpreS[i]) # FN / (TP + FN)
+    TNR[i] <- trueSpreS[i] / (trueSpreR[i] + trueSpreS[i]) # TN / (FP + TN)
+    BA[i] <-  (TPR[i] + TNR[i]) / 2
+    
+    ## For cells
+    PPVCell[i] <- trueRpreRCell[i] / (trueRpreRCell[i] + trueSpreRCell[i]) # TP/(TP + FP)
+    NPVCell[i] <- trueSpreSCell[i] / (trueSpreSCell[i] + trueRpreSCell[i]) # TN/(FN + TN)
+    FORCell[i] <- trueRpreSCell[i] /(trueSpreSCell[i] + trueRpreSCell[i]) # FN/(FN + TN)
+    FDRCell[i] <- trueSpreRCell[i] / (trueRpreRCell[i] + trueSpreRCell[i]) # FP/(TP + FP)
+    TPRCell[i] <- trueRpreRCell[i] / (trueRpreRCell[i] + trueRpreSCell[i]) # TP / (TP + FN)
+    FPRCell[i] <- trueSpreRCell[i] / (trueSpreRCell[i] + trueSpreSCell[i]) # FP / (FP + TN)
+    FNRCell[i] <- trueRpreSCell[i] / (trueRpreRCell[i] + trueRpreSCell[i]) # FN / (TP + FN)
+    TNRCell[i] <- trueSpreSCell[i] / (trueSpreRCell[i] + trueSpreSCell[i]) # TN / (FP + TN)
+    BACell[i] <-  (TPRCell[i] + TNRCell[i]) / 2
+    
+    ## For lineages in singleton
+    PPVSingleton[i] <- trueRpreRSingleton[i] / (trueRpreRSingleton[i] + trueSpreRSingleton[i]) # TP/(TP + FP)
+    NPVSingleton[i] <- trueSpreSSingleton[i] / (trueSpreSSingleton[i] + trueRpreSSingleton[i]) # TN/(FN + TN)
+    FORSingleton[i] <- trueRpreSSingleton[i] /(trueSpreSSingleton[i] + trueRpreSSingleton[i]) # FN/(FN + TN)
+    FDRSingleton[i] <- trueSpreRSingleton[i] / (trueRpreRSingleton[i] + trueSpreRSingleton[i]) # FP/(TP + FP)
+    TPRSingleton[i] <- trueRpreRSingleton[i] / (trueRpreRSingleton[i] + trueRpreSSingleton[i]) # TP / (TP + FN)
+    FPRSingleton[i] <- trueSpreRSingleton[i] / (trueSpreRSingleton[i] + trueSpreSSingleton[i]) # FP / (FP + TN)
+    FNRSingleton[i] <- trueRpreSSingleton[i] / (trueRpreRSingleton[i] + trueRpreSSingleton[i]) # FN / (TP + FN)
+    TNRSingleton[i] <- trueSpreSSingleton[i] / (trueSpreRSingleton[i] + trueSpreSSingleton[i]) # TN / (FP + TN)
+    BASingleton[i] <-  (TPRSingleton[i] + TNRSingleton[i]) / 2
+    
+    ## For cells
+    PPVCellSingleton[i] <- trueRpreRCellSingleton[i] / (trueRpreRCellSingleton[i] + trueSpreRCellSingleton[i]) # TP/(TP + FP)
+    NPVCellSingleton[i] <- trueSpreSCellSingleton[i] / (trueSpreSCellSingleton[i] + trueRpreSCellSingleton[i]) # TN/(FN + TN)
+    FORCellSingleton[i] <- trueRpreSCellSingleton[i] /(trueSpreSCellSingleton[i] + trueRpreSCellSingleton[i]) # FN/(FN + TN)
+    FDRCellSingleton[i] <- trueSpreRCellSingleton[i] / (trueRpreRCellSingleton[i] + trueSpreRCellSingleton[i]) # FP/(TP + FP)
+    TPRCellSingleton[i] <- trueRpreRCellSingleton[i] / (trueRpreRCellSingleton[i] + trueRpreSCellSingleton[i]) # TP / (TP + FN)
+    FPRCellSingleton[i] <- trueSpreRCellSingleton[i] / (trueSpreRCellSingleton[i] + trueSpreSCellSingleton[i]) # FP / (FP + TN)
+    FNRCellSingleton[i] <- trueRpreSCellSingleton[i] / (trueRpreRCellSingleton[i] + trueRpreSCellSingleton[i]) # FN / (TP + FN)
+    TNRCellSingleton[i] <- trueSpreSCellSingleton[i] / (trueSpreRCellSingleton[i] + trueSpreSCellSingleton[i]) # TN / (FP + TN)
+    BACellSingleton[i] <-  (TPRCellSingleton[i] + TNRCellSingleton[i]) / 2
+  }
+  tmp <- list(
+    # sisterSample = Nsister.sample,
+    sisterCellPreBT = sister.preBT,
+    twinLineagePreBT = twin.preBT,
+    #           falseSisterPreBT = sister.preBT.false,
+    sisterCellBT = sister.BT, # falseSisterBT = sister.BT.false,
+    twinLineageBT = twin.BT,
+    twinLineageBTProp = twin.BT.prop,
+    labelPreBTOnly = unique.label.preBT,
+    labelPreATOnly = unique.label.preAT,
+    labelPreBTPreAT = label.preBTpreAT,
+    labelBTOnly = unique.label.BT,
+    labelBTAT = BTAT.labels,
+    labelATOnly = unique.label.AT,
+    falsepreSLineageFromUnevenSplit = falsepreSLineageFromUnevenSplit,
+    cellPreR = preR.cell, cellPreS = preS.cell,
+    labelPreR = label.preR, labelPreS = label.preS,
+    trueRpreR = trueRpreR,
+    trueSpreS = trueSpreS,
+    trueRpreS = trueRpreS,
+    trueSpreR = trueSpreR,
+    trueRpreRCell = trueRpreRCell,
+    trueSpreSCell = trueSpreSCell,
+    trueRpreSCell = trueRpreSCell,
+    trueSpreRCell = trueSpreRCell,
+    PPV = PPV,
+    NPV = NPV,
+    FOR = FOR,
+    FDR = FDR,
+    TPR = TPR,
+    FPR = FPR,
+    FNR = FNR,
+    TNR = TNR,
+    BA = BA,
+    PPVCell = PPVCell,
+    NPVCell = NPVCell,
+    FORCell = FORCell,
+    FDRCell = FDRCell,
+    TPRCell = TPRCell,
+    FPRCell = FPRCell,
+    FNRCell = FNRCell,
+    TNRCell = TNRCell,
+    BACell = BACell,
+    trueRpreRSingleton = trueRpreRSingleton,
+    trueSpreSSingleton = trueSpreSSingleton,
+    trueRpreSSingleton = trueRpreSSingleton,
+    trueSpreRSingleton = trueSpreRSingleton,
+    trueRpreRCellSingleton = trueRpreRCellSingleton,
+    trueSpreSCellSingleton = trueSpreSCellSingleton,
+    trueRpreSCellSingleton = trueRpreSCellSingleton,
+    trueSpreRCellSingleton = trueSpreRCellSingleton,
+    PPVSingleton = PPVSingleton,
+    NPVSingleton = NPVSingleton,
+    FORSingleton = FORSingleton,
+    FDRSingleton = FDRSingleton,
+    TPRSingleton = TPRSingleton,
+    FPRSingleton = FPRSingleton,
+    FNRSingleton = FNRSingleton,
+    TNRSingleton = TNRSingleton,
+    BASingleton = BASingleton,
+    PPVCellSingleton = PPVCellSingleton,
+    NPVCellSingleton = NPVCellSingleton,
+    FORCellSingleton = FORCellSingleton,
+    FDRCellSingleton = FDRCellSingleton,
+    TPRCellSingleton = TPRCellSingleton,
+    FPRCellSingleton = FPRCellSingleton,
+    FNRCellSingleton = FNRCellSingleton,
+    TNRCellSingleton = TNRCellSingleton,
+    BACellSingleton = BACellSingleton)
+  return(tmp)
+}
+```
+
+# Perform the simulation
+
+```{r}
+cellSeq_numers <- readxl::read_xlsx("./data/input/simulation/cell_counts_for_each_treatment_samples_AT.xlsx")
+colnames(cellSeq_numers)[1] <- "treatment"
+cellSeq_numers <- cellSeq_numers %>% 
+  group_by(treatment) %>% 
+  summarise_all(mean)
+cellSeq_numers
+```
+
+## Parameter from real data
+
+```{r}
+# Fixed parameters
+Niter <- 100
+SampleSize <- 16000
+seed <- 123
+LineagePropAfterDoubling <- c(42.46, 53.04, 4.5)
+
+# Parameters changed
+KillRateTotal <- seq(0.7, 0.8, by = 0.01)
+```
+
+### Simulation
+
+```{r include=FALSE}
+treatments <- unique(cell_counts$treatment)
+treatments <- treatments[treatments != "ctrl"]
+res <- NULL
+for (i in 1:length(KillRateTotal)) {
+  for (t in treatments) {
+    tmp <- ReSisTraceSimulation(
+      Niter = Niter,
+      SampleSize = SampleSize,
+      LineagePropAfterDoubling = LineagePropAfterDoubling,
+      NCellBT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "BeforeTreatment_no_qc"]),
+      NCellAT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "AfterTreatment_no_qc"]),
+      KillRateTotal = KillRateTotal[i],
+      NCellPreSeq = round(cellSeq_numers$NCellPreSeq[cellSeq_numers$treatment == t]),
+      NCellSeq = round(cellSeq_numers$NCellSeq[cellSeq_numers$treatment == t]),
+      seed = seed
+    )
+    ave <- sapply(tmp, mean)
+    ave <- as.data.frame(t(ave))
+    colnames(ave) <- paste0(colnames(ave), "_mean")
+    sd <- sapply(tmp, sd)
+    sd <- as.data.frame(t(sd))
+    colnames(sd) <- paste0(colnames(sd), "_sd")
+    df <- data.frame(
+      treatment = t,
+      KillRateTotal = KillRateTotal[i]
+    )
+    df <- cbind.data.frame(df, ave, sd)
+    res <- rbind.data.frame(res, df)
+  }
+}
+```
+
+```{r}
+write.csv(res, paste0(output_dir, "simulation_results.csv"), row.names = FALSE)
+```
+
+### Visualization
+
+```{r}
+metrics <- c("PPV", "NPV", "FOR", "FDR", "TPR", "FPR", "FNR", "TNR", "BA",
+             "PPVCell", "NPVCell", "FORCell", "FDRCell", "TPRCell", "FPRCell", "FNRCell", "TNRCell", "BACell")
+res$treatment[res$treatment == "Carbo"] <- "Carboplatin"
+res$treatment <- factor(res$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
+res$KillRateTotal <- factor(res$KillRateTotal)
+for (m in metrics){
+  tmp <- res %>% 
+    mutate(
+      label = paste0(round(res[[paste0(m, "_mean")]] * 100, 2), "+-", round(res[[paste0(m, "_sd")]] * 100, 2))
+    )
+  p <- ggplot(
+    tmp,
+    aes_string(
+      x = "treatment", y = "KillRateTotal", fill = paste0(m, "_mean"),
+      label = "label"
+    )
+  ) +
+    geom_tile() +
+    geom_text(size = 3) +
+    scale_fill_gradient2(low = "yellow", high = "red") +
+    labs(
+      title = ifelse(endsWith(m, "Cell"), "Calculated from cell numbers", "Calculated from lineage numbers"),
+      x = "",
+      y = "Killing rate on pre-resistant cells",
+      fill = switch (gsub("Cell", "", m),
+        "FOR" = "False Omission Rate\n(FOR)",
+        "PPV" = "Positive predictive value\n(PPV)",
+        "NPV" = "Negative predictive value\n(NPV)",
+        "FDR" = "False discovery rate\n(FNR)",
+        "TPR" = "True positive rate\n(TPR)",
+        "FPR" = "False positive rate\n(FPR)",
+        "FNR" = "False negative rate\n(FNR)",
+        "TNR" = "True negative rate\n(TNR)",
+        "BA" = "Balanced accuracy\n(BA)"
+      )
+    ) +
+    theme(
+      panel.background = element_blank(),
+      legend.title = element_text(size = 8),
+      plot.title = element_text(hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5)
+      )
+  ggsave(paste0(output_dir, m, "_observed.png"), p, height = 3.5, width = 4.5)
+}
+
+```
+
+## Perfect doubling
+
+```{r}
+# Fixed parameters
+Niter <- 100
+SampleSize <- 16000
+seed <- 123
+LineagePropAfterDoubling <- c(0, 100, 0)
+
+# Parameters changed
+KillRateTotal <- seq(0.7, 0.8, by = 0.01)
+```
+
+### Simulation
+
+```{r include=FALSE}
+treatments <- unique(cell_counts$treatment)
+treatments <- treatments[treatments != "ctrl"]
+res <- NULL
+for (i in 1:length(KillRateTotal)) {
+  for (t in treatments) {
+    tmp <- ReSisTraceSimulation(
+      Niter = Niter,
+      SampleSize = SampleSize,
+      LineagePropAfterDoubling = LineagePropAfterDoubling,
+      NCellBT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "BeforeTreatment_no_qc"]),
+      NCellAT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "AfterTreatment_no_qc"]),
+      KillRateTotal = KillRateTotal[i],
+      NCellPreSeq = round(cellSeq_numers$NCellPreSeq[cellSeq_numers$treatment == t]),
+      NCellSeq = round(cellSeq_numers$NCellSeq[cellSeq_numers$treatment == t]),
+      seed = seed
+    )
+    ave <- sapply(tmp, mean)
+    ave <- as.data.frame(t(ave))
+    colnames(ave) <- paste0(colnames(ave), "_mean")
+    sd <- sapply(tmp, sd)
+    sd <- as.data.frame(t(sd))
+    colnames(sd) <- paste0(colnames(sd), "_sd")
+    df <- data.frame(
+      treatment = t,
+      KillRateTotal = KillRateTotal[i]
+    )
+    df <- cbind.data.frame(df, ave, sd)
+    res <- rbind.data.frame(res, df)
+  }
+}
+```
+
+```{r}
+write.csv(res, paste0(output_dir, "simulation_results_perfect_doubling.csv"), row.names = FALSE)
+```
+
+### Visualization
+
+```{r}
+metrics <- c("PPV", "NPV", "FOR", "FDR", "TPR", "FPR", "FNR", "TNR", "BA",
+             "PPVCell", "NPVCell", "FORCell", "FDRCell", "TPRCell", "FPRCell", "FNRCell", "TNRCell", "BACell")
+res$treatment[res$treatment == "Carbo"] <- "Carboplatin"
+res$treatment <- factor(res$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
+res$KillRateTotal <- factor(res$KillRateTotal)
+for (m in metrics){
+  tmp <- res %>% 
+    mutate(
+      label = paste0(round(res[[paste0(m, "_mean")]] * 100, 2), "+-", round(res[[paste0(m, "_sd")]] * 100, 2))
+    )
+  p <- ggplot(
+    tmp,
+    aes_string(
+      x = "treatment", y = "KillRateTotal", fill = paste0(m, "_mean"),
+      label = "label"
+    )
+  ) +
+    geom_tile() +
+    geom_text(size = 3) +
+    scale_fill_gradient2(low = "yellow", high = "red") +
+    labs(
+      title = ifelse(endsWith(m, "Cell"), "Calculated from cell numbers", "Calculated from lineage numbers"),
+      x = "",
+      y = "Killing rate on pre-resistant cells",
+      fill = switch (gsub("Cell", "", m),
+        "FOR" = "False Omission Rate\n(FOR)",
+        "PPV" = "Positive predictive value\n(PPV)",
+        "NPV" = "Negative predictive value\n(NPV)",
+        "FDR" = "False discovery rate\n(FNR)",
+        "TPR" = "True positive rate\n(TPR)",
+        "FPR" = "False positive rate\n(FPR)",
+        "FNR" = "False negative rate\n(FNR)",
+        "TNR" = "True negative rate\n(TNR)",
+        "BA" = "Balanced accuracy\n(BA)"
+      )
+    ) +
+    theme(
+      panel.background = element_blank(),
+      legend.title = element_text(size = 8),
+      plot.title = element_text(hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5)
+      )
+  ggsave(paste0(output_dir, m, "_perfect_doubling.png"), p, height = 3.5, width = 4.5)
+}
+```
+
+## No drop out perfect doubling
+
+```{r}
+# Fixed parameters
+Niter <- 100
+SampleSize <- 16000
+seed <- 123
+LineagePropAfterDoubling <- c(0, 100, 0)
+NCellAT <- 16000
+NCellBT <- 16000
+NCellPreSeq <- 16000
+NCellSeq <- 16000
+
+# Parameters changed
+KillRateTotal <- seq(0.7, 0.8, by = 0.01)
+```
+
+### Simulation
+
+```{r include=FALSE}
+res <- NULL
+for (i in 1:length(KillRateTotal)) {
+  tmp <- ReSisTraceSimulation(
+    Niter = Niter,
+    SampleSize = SampleSize,
+    LineagePropAfterDoubling = LineagePropAfterDoubling,
+    NCellBT = NCellBT,
+    NCellAT = NCellAT,
+    KillRateTotal = KillRateTotal[i],
+    NCellPreSeq = NCellPreSeq,
+    NCellSeq = NCellSeq,
+    seed = seed
+  )
+  ave <- sapply(tmp, mean)
+  ave <- as.data.frame(t(ave))
+  colnames(ave) <- paste0(colnames(ave), "_mean")
+  sd <- sapply(tmp, sd)
+  sd <- as.data.frame(t(sd))
+  colnames(sd) <- paste0(colnames(sd), "_sd")
+  df <- data.frame(
+    KillRateTotal = KillRateTotal[i]
+  )
+  df <- cbind.data.frame(df, ave, sd)
+  res <- rbind.data.frame(res, df)
+}
+
+```
+
+```{r}
+write.csv(res, paste0(output_dir, "simulation_results_perfect_doubling_no_drop_out.csv"), row.names = FALSE)
+```
+
+## No drop out
+
+```{r}
+# Fixed parameters
+Niter <- 100
+SampleSize <- 16000
+seed <- 123
+LineagePropAfterDoubling <- c(42.46, 53.04, 4.5)
+NCellAT <- 13323
+NCellBT <- 13323
+NCellPreSeq <- 13323
+NCellSeq <- 13323
+
+# Parameters changed
+KillRateTotal <- seq(0.7, 0.8, by = 0.01)
+```
+
+### Simulation
+
+```{r include=FALSE}
+res <- NULL
+for (i in 1:length(KillRateTotal)) {
+  tmp <- ReSisTraceSimulation(
+    Niter = Niter,
+    SampleSize = SampleSize,
+    LineagePropAfterDoubling = LineagePropAfterDoubling,
+    NCellBT = NCellBT,
+    NCellAT = NCellAT,
+    KillRateTotal = KillRateTotal[i],
+    NCellPreSeq = NCellPreSeq,
+    NCellSeq = NCellSeq,
+    seed = seed
+  )
+  ave <- sapply(tmp, mean)
+  ave <- as.data.frame(t(ave))
+  colnames(ave) <- paste0(colnames(ave), "_mean")
+  sd <- sapply(tmp, sd)
+  sd <- as.data.frame(t(sd))
+  colnames(sd) <- paste0(colnames(sd), "_sd")
+  df <- data.frame(
+    KillRateTotal = KillRateTotal[i]
+  )
+  df <- cbind.data.frame(df, ave, sd)
+  res <- rbind.data.frame(res, df)
+}
+
+```
+
+```{r}
+write.csv(res, paste0(output_dir, "simulation_results_no_drop_out.csv"), row.names = FALSE)
+```
+
+# Line plot
+
+```{r}
+ideal_condition <- read.csv(paste0(output_dir, "simulation_results_perfect_doubling_no_drop_out.csv"))
+observed_condition <- read.csv(paste0(output_dir, "simulation_results.csv"))
+plot_table <- ideal_condition %>% 
+  mutate(treatment = "Base line") %>% 
+  rbind.data.frame(observed_condition)
+plot_table$treatment[plot_table$treatment == "Carbo"] <- "Carboplatin"
+plot_table$treatment <- factor(plot_table$treatment, levels = c("Carboplatin", "Olaparib", "NK", "Base line"))
+plot_table$KillRateTotal <- plot_table$KillRateTotal * 100
+```
+
+```{r}
+metrics <- c("NPV", "FOR")
+for (m in metrics) {
+  tmp <- plot_table
+  tmp[, startsWith(colnames(tmp), m)] <- tmp[, startsWith(colnames(tmp), m)] * 100
+  p<- ggplot(
+      tmp,
+      aes_string(
+        x="KillRateTotal",
+        y=paste0(m, "_mean"),
+        group="treatment",
+        color="treatment"
+      )
+    ) + 
+    geom_line() +
+    geom_point() +
+    theme_bw() + 
+    theme(
+      text = element_text(size = 20),
+      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 20, color = "black"),
+      legend.text = element_text(size = 20, color = "black")
+    ) +
+    scale_color_manual(values = c(blue, red, brown, "#000000")) +
+    ylim(c(0, 100)) +
+    labs(
+      title = "Lineage count",
+      x = "Killing rate",
+      y = "Negative predictive value",
+      color = ""
+    )
+  ggsave(paste0(output_dir, m, "_lineage_count.png"), p, width = 6, height = 4)
+  
+  p<- ggplot(
+      tmp,
+      aes_string(
+        x="KillRateTotal",
+        y=paste0(m, "Cell_mean"),
+        group="treatment",
+        color="treatment"
+      )
+    ) + 
+    geom_line() +
+    geom_point() +
+    theme_bw() + 
+    theme(
+      text = element_text(size = 20),
+      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 20, color = "black"),
+      legend.text = element_text(size = 20, color = "black")
+    ) +
+    scale_color_manual(values = c(blue, red, brown, "#000000")) +
+    ylim(c(0, 100)) +
+    labs(
+      title = "Cell count",
+      x = "Killing rate",
+      y = "Negative predictive value",
+      color = ""
+    )
+  ggsave(paste0(output_dir, m, "_cell_count.png"), p, width = 6, height = 4)
+  
+  p<- ggplot(
+      tmp,
+      aes_string(
+        x="KillRateTotal",
+        y=paste0(m, "Singleton_mean"),
+        group="treatment",
+        color="treatment"
+      )
+    ) + 
+    geom_line() +
+    geom_point() +
+    theme_bw() + 
+    theme(
+      text = element_text(size = 20),
+      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 20, color = "black"),
+      legend.text = element_text(size = 20, color = "black")
+    ) +
+    scale_color_manual(values = c(blue, red, brown, "#000000")) +
+    ylim(c(0, 100)) +
+    labs(
+      title = "Lineage count (only singletons)",
+      x = "Killing rate",
+      y = "Negative predictive value",
+      color = ""
+    )
+  ggsave(paste0(output_dir, m, "_lineage_count_singleton.png"), p, width = 6, height = 4)
+  
+  p<- ggplot(
+      tmp,
+      aes_string(
+        x="KillRateTotal",
+        y=paste0(m, "CellSingleton_mean"),
+        group="treatment",
+        color="treatment"
+      )
+    ) + 
+    geom_line() +
+    geom_point() +
+    theme_bw() + 
+    theme(
+      text = element_text(size = 20),
+      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 20, color = "black"),
+      legend.text = element_text(size = 20, color = "black")
+    ) +
+    scale_color_manual(values = c(blue, red, brown, "#000000")) +
+    ylim(c(0, 100)) +
+    labs(
+      title = "Cell count (only singleton)",
+      x = "Killing rate",
+      y = "Negative predictive value",
+      color = ""
+    )
+  ggsave(paste0(output_dir, m, "_cell_count_singleton.png"), p, width = 6, height = 4)
+}
+```
+```{r}
+p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVCell_mean * 100, group=treatment, color=treatment)) + 
+  geom_line() +
+  geom_point() +
+  theme_bw() + 
+  theme(
+    text = element_text(size = 20),
+    axis.title = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 20, color = "black"),
+    legend.text = element_text(size = 20, color = "black")
+  ) +
+  scale_color_manual(values = c(blue, red, brown, "#000000")) +
+  ylim(c(0, 100)) +
+  labs(
+    title = "Cell count",
+    x = "Killing rate",
+    y = "Negative predictive value",
+    color = "")
+p
+```
+
+```{r}
+p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVSingleton_mean * 100, group=treatment, color=treatment)) + 
+  geom_line() +
+  geom_point() +
+  theme_bw() + 
+  theme(
+    text = element_text(size = 20),
+    axis.title = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 20, color = "black"),
+    legend.text = element_text(size = 20, color = "black")
+  ) +
+  scale_color_manual(values = c(blue, red, brown, "#000000")) +
+  ylim(c(0, 100)) +
+  labs(
+    title = "Lineage count (only singletons)",
+    x = "Killing rate",
+    y = "Negative predictive value",
+    color = "")
+p
+```
+
+
+```{r}
+p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVSingleton_mean * 100, group=treatment, color=treatment)) + 
+  geom_line() +
+  geom_point() +
+  theme_bw() + 
+  theme(
+    text = element_text(size = 20),
+    axis.title = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 20, color = "black"),
+    legend.text = element_text(size = 20, color = "black")
+  ) +
+  scale_color_manual(values = c(blue, red, brown, "#000000")) +
+  ylim(c(0, 100)) +
+  labs(
+    title = "Lineage count (only singletons)",
+    x = "Killing rate",
+    y = "Negative predictive value",
+    color = "")
+p
+```
