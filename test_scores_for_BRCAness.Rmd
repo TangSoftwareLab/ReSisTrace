@@ -1,0 +1,977 @@
+---
+title: "Test some scores to replace correlation for BRCAness"
+output: html_notebook
+---
+
+# Load packages
+
+The "gCMAP" package has been removed from Bioconductor science version 3.9. I downloaded the source codes for this package from [Bioconductor 3.8 archieve](https://bioconductor.org/packages/3.8/bioc/html/gCMAP.html). The version for gCMAP on Bioconductor 3.8 is 1.26.0 while the latest version on the [tomsing1' GitHub page](https://github.com/tomsing1/gCMAP/commits/master) is 1.21.0.
+
+```{r}
+library(tidyverse)
+library(PharmacoGx)
+library(rstatix)
+library(ggpubr)
+output_dir <- "./data/output/"
+if (!dir.exists(output_dir)){
+  dir.create(output_dir, recursive = TRUE)
+}
+```
+
+# Color code
+
+```{r}
+blue = "#3C5488FF"
+red =  "#DC0000FF"
+green = "#00A087FF"
+brown = "#B09C85FF"
+
+blue2 <- "#4DBBD5FF"
+red2 <- "#E64B35FF"
+green2 <- "#91D1C2FF"
+brown2 <- "#7E6148FF"
+
+blue3 <- "#8491B4FF"
+red3 <- "#F39B7FFF"
+```
+
+```{r}
+library(pander)
+data(CMAPsmall)
+drug.perturbation <- drugPerturbationSig(CMAPsmall,
+mDataType="rna",
+verbose=FALSE)
+data(HDAC_genes)
+```
+
+# Connectivity score
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "red2", "blue2", "brown2", "green2","red2", "blue3")))
+sub_output_dir <- paste0(output_dir, "test_PharmacoGx_GSEA_connectivity_score/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+
+lseq <- function(from=1, to=100000, length.out=6) {
+  # logarithmic spaced sequence
+  # blatantly stolen from library("emdbook"), because need only this
+  exp(seq(log(from), log(to), length.out = length.out))
+}
+treatments <- c("Olaparib", "Carboplatin", "NK")
+conserve_gene_only <- TRUE
+```
+
+### load data
+
+```{r}
+data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+log2FC_table <- read.csv("./data/output/Figure2/Figure2D_log2FC_preR_preS_CNV_subclone.csv")
+conserve <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
+  dplyr::select(ensembl, conserve_gene)
+```
+
+```{r}
+treatment <- c("Carbo", "Olaparib", "NK")
+log2FC_table <- NULL
+for (t in treatment){
+  tmp <- read.csv(
+  paste0(
+    "./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_",
+    t,
+    "_control_bootstrap_permutation_summary.csv")
+  )
+  tmp[[paste0(t, "_log2FC_preR_preS_adj")]] <- tmp$mean_log2FC_treat - tmp$mean_log2FC_ctrl
+  tmp <- tmp[, c("ensembl", "symbol", paste0(t, "_log2FC_preR_preS_adj"),
+                paste0("boot_", t, "_ctrl_p_value"),
+                paste0("perm_", t, "_ctrl_p_value"))]
+  if (is.null(log2FC_table)){
+    log2FC_table <- tmp
+  } else {
+    log2FC_table <- left_join(log2FC_table, tmp, by = c("ensembl", "symbol"))
+  }
+}
+log2FC_table <- left_join(log2FC_table, conserve, by = "ensembl")
+```
+
+TCGA BRCAness signature
+
+```{r}
+tcga = read.csv("./data/input/BRCAness/TCGA_deconvoluted_HRD_DEGs.tsv", sep = "\t")
+tcga[which(rownames(tcga) == "BRCA1"), ] # should be negative logFC
+tcga$ensembl = data@misc$gene_meta$ensembl[match(rownames(tcga), data@misc$gene_meta$symbol)]
+length(which(is.na(tcga$ensembl)==T)) # 383 genes have no emsembl
+
+summary(tcga$adj.P.Val)
+```
+
+```{r}
+log2FC_table <- left_join(
+  log2FC_table,
+  tcga %>%
+    rownames_to_column("symbol") %>%
+    dplyr::select(
+      ensembl, symbol, BRCAness_tcga_logFC = logFC,
+      BRCAness_tcga_p_adj = adj.P.Val
+    ),
+  by = c("ensembl", "symbol")
+)
+```
+
+COV362 BRCAness signature
+
+```{r}
+cov362 <- read.csv("./data/input/BRCAness/deg_COV362.csv")
+cov362[which(cov362$symbol == "BRCA1"),] # should be negative logFC
+```
+
+```{r}
+log2FC_table <- left_join(
+  log2FC_table,
+  cov362 %>%
+    dplyr::select(
+      ensembl, symbol, BRCAness_cov_logFC = avg_log2FC,
+      BRCAness_cov_p_adj = p_val_adj
+    ),
+  by = c("ensembl", "symbol")
+)
+```
+
+```{r}
+# write.csv(log2FC_table, paste0(sub_output_dir, "Figure3D_logFC_table_for_plots.csv"), row.names = FALSE)
+```
+
+```{r}
+# log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
+```
+
+TCGA BRCAness signature vs. CNV subclone signature
+
+```{r}
+# data <- read.csv(paste0(sub_output_dir, "Figure3D_logFC_table_for_plots.csv")) %>%
+#   filter(BRCAness_tcga_p_adj <= 0.01) %>% 
+#   select("log2FC_A", "log2FC_B", "log2FC_C", "log2FC_D",
+#          "log2FC_E", "BRCAness_tcga_logFC", "BRCAness_cov_logFC")
+# 
+# cor(data, method = "spearman", use = "complete")
+```
+
+COV362 signature vs. CNV subclone signature
+
+```{r}
+# data <- read.csv(paste0(sub_output_dir, "Figure3D_logFC_table_for_plots.csv")) %>%
+#   filter(BRCAness_cov_p_adj <= 1 * 10^-8) %>% 
+#   select("log2FC_A", "log2FC_B", "log2FC_C", "log2FC_D",
+#          "log2FC_E", "BRCAness_tcga_logFC", "BRCAness_cov_logFC")
+# 
+# cor(data, method = "spearman", use = "complete")
+```
+
+```{r}
+if (conserve_gene_only){
+  plot_table <- filter(log2FC_table, conserve_gene)
+} else {
+  plot_table <- log2FC_table
+}
+```
+
+### Test for good P threshold
+
+#### TCGA signature
+
+```{r}
+min_p = 0.005 # around 200 sister conserved BRCAness genes 
+max_p = 0.05
+
+p_threshold = c(lseq(min_p, max_p, 20), 1*10^-(2:3), 5*10^-(2:4), 1)
+```
+
+##### GWC connectivity score (weighted Pearson)
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_tcga_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -BRCAness_tcga_logFC, sig = BRCAness_tcga_p_adj) %>% 
+    dplyr::select(value, sig)
+  
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = boot_Olaparib_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='pearson', nperm=300)
+  res[i, "Olaparib_score"] <- connect["score"]
+  res[i, "Olaparib_p"] <- connect["p"]
+  
+  # Carboplatin
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = boot_Carbo_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='pearson', nperm=300)
+  res[i, "Carboplatin_score"] <- connect["score"]
+  res[i, "Carboplatin_p"] <- connect["p"]
+  
+  # NK
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = boot_NK_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='pearson', nperm=300)
+  res[i, "NK_score"] <- connect["score"]
+  res[i, "NK_p"] <- connect["p"]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_tcga_weighted_pearson", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+##### GWC connectivity score (weighted Spearman)
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_tcga_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -BRCAness_tcga_logFC, sig = BRCAness_tcga_p_adj) %>% 
+    dplyr::select(value, sig)
+  
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = boot_Olaparib_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "Olaparib_score"] <- connect["score"]
+  res[i, "Olaparib_p"] <- connect["p"]
+  
+  # Carboplatin
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = boot_Carbo_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "Carboplatin_score"] <- connect["score"]
+  res[i, "Carboplatin_p"] <- connect["p"]
+  
+  # NK
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = boot_NK_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "NK_score"] <- connect["score"]
+  res[i, "NK_p"] <- connect["p"]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_tcga_weighted_spearman", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+##### GSEA (BRCAness value is -log2FC)
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_tcga_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -BRCAness_tcga_logFC) %>% 
+    dplyr::select(value)
+  y <- BRCA_genes$value
+  names(y) <- rownames(BRCA_genes)
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Olaparib_score"] <- connect[1]
+  res[i, "Olaparib_p"] <- connect[2]
+  
+  # Carboplatin
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Carboplatin_score"] <- connect[1]
+  res[i, "Carboplatin_p"] <- connect[2]
+  
+  # NK
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "NK_score"] <- connect[1]
+  res[i, "NK_p"] <- connect[2]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_GSEA_connect_tcga_BRCAness_log2FC", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+##### GSEA (BRCAness value is -sing of log2FC * -log10(p_value))
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_tcga_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -sign(BRCAness_tcga_logFC)*-log10(BRCAness_tcga_p_adj)) %>% 
+    dplyr::select(value)
+  y <- BRCA_genes$value
+  names(y) <- rownames(BRCA_genes)
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Olaparib_score"] <- connect[1]
+  res[i, "Olaparib_p"] <- connect[2]
+  
+  # Carboplatin
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Carboplatin_score"] <- connect[1]
+  res[i, "Carboplatin_p"] <- connect[2]
+  
+  # NK
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "NK_score"] <- connect[1]
+  res[i, "NK_p"] <- connect[2]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_GSEA_connect_tcga_BRCAness_pvalue", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+#### COV362 signature
+
+```{r}
+min_p = 5 * 10^-16 # around 200 sister concordant BRCAness genes
+max_p = 0.05
+p_threshold <- c(lseq(min_p, max_p, 20), 1 * 10 ^ -c(2:14), 5 * 10 ^ -c(2:14))
+
+res = mat.or.vec(length(p_threshold), 5)
+colnames(res) <- c("p_threshold", "n_gene", "Olaparib", "Carboplatin", "NK")
+```
+
+##### GWC connectivity score (weighted Spearman)
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -BRCAness_cov_logFC, sig = BRCAness_cov_p_adj) %>% 
+    dplyr::select(value, sig)
+  
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = boot_Olaparib_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "Olaparib_score"] <- connect["score"]
+  res[i, "Olaparib_p"] <- connect["p"]
+  
+  # Carboplatin
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = boot_Carbo_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "Carboplatin_score"] <- connect["score"]
+  res[i, "Carboplatin_p"] <- connect["p"]
+  
+  # NK
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = boot_NK_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "NK_score"] <- connect["score"]
+  res[i, "NK_p"] <- connect["p"]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_cov_weighted_spearman", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+##### GWC connectivity score (weighted Pearson)
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -BRCAness_cov_logFC, sig = BRCAness_cov_p_adj) %>% 
+    dplyr::select(value, sig)
+  
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = boot_Olaparib_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='pearson', nperm=300)
+  res[i, "Olaparib_score"] <- connect["score"]
+  res[i, "Olaparib_p"] <- connect["p"]
+  
+  # Carboplatin
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = boot_Carbo_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='pearson', nperm=300)
+  res[i, "Carboplatin_score"] <- connect["score"]
+  res[i, "Carboplatin_p"] <- connect["p"]
+  
+  # NK
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = boot_NK_ctrl_p_value) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='pearson', nperm=300)
+  res[i, "NK_score"] <- connect["score"]
+  res[i, "NK_p"] <- connect["p"]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_cov_weighted_pearson", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+##### GSEA (BRCAness value is -log2FC)
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -BRCAness_cov_logFC) %>% 
+    dplyr::select(value)
+  y <- BRCA_genes$value
+  names(y) <- rownames(BRCA_genes)
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Olaparib_score"] <- connect[1]
+  res[i, "Olaparib_p"] <- connect[2]
+  
+  # Carboplatin
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Carboplatin_score"] <- connect[1]
+  res[i, "Carboplatin_p"] <- connect[2]
+  
+  # NK
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "NK_score"] <- connect[1]
+  res[i, "NK_p"] <- connect[2]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_GSEA_connect_cov_BRCAness_log2FC", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+##### GSEA (BRCAness value is -sing of log2FC * -log10(p_value))
+
+```{r}
+res = mat.or.vec(length(p_threshold), 8)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Carboplatin_score", "NK_score",
+  "Olaparib_p", "Carboplatin_p", "NK_p")
+
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = -BRCAness_cov_logFC * (-log10(BRCAness_cov_p_adj))) %>% 
+    dplyr::select(value)
+  y <- BRCA_genes$value
+  names(y) <- rownames(BRCA_genes)
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Olaparib_score"] <- connect[1]
+  res[i, "Olaparib_p"] <- connect[2]
+  
+  # Carboplatin
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "Carboplatin_score"] <- connect[1]
+  res[i, "Carboplatin_p"] <- connect[2]
+  
+  # NK
+  tmp <- plot_table %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj) %>% 
+    dplyr::select(value)
+  x <- tmp$value
+  names(x) <- row.names(tmp)
+  connect <- connectivityScore(x = x, y = y, method = "fgsea", nperm=300)
+  res[i, "NK_score"] <- connect[1]
+  res[i, "NK_p"] <- connect[2]
+
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_GSEA_connect_cov_BRCAness_pvalue", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+# Box plot preS/preR
+
+## GWC connectivity score
+
+### Weighted spearman
+
+```{r}
+res1 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_tcga_weighted_spearman", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold"
+  )
+res1 <- res1[1:20, ]
+res1.df = reshape2::melt(res1, id.vars = "p_threshold", variable.name = "treatment")
+res1.df$group = "TCGA"
+
+res2 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_cov_weighted_spearman", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold")
+res2 <- res2[1:20, ]
+res2.df = reshape2::melt(res2, id.vars = "p_threshold", variable.name = "treatment")
+res2.df$group = "COV362"
+
+res.df = rbind.data.frame(res1.df, res2.df)
+res.df$group <- factor(res.df$group, levels = c("TCGA", "COV362"))
+res.df$treatment <- factor(res.df$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
+
+stat.test <- res.df %>%
+  dplyr::group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "NK") %>%
+  add_xy_position(
+    x = "group", dodge = 0.8,
+    step.increase = 0.05
+  ) %>%
+  add_significance("p")
+stat.test
+
+p <- ggboxplot(
+  res.df,
+  x = "group", y = "value", fill = "treatment",
+  outlier.shape = NA
+) +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    bracket.nudge.y = -0.01,
+    size = 5
+  ) +
+  geom_point(
+    data = res.df[res.df$treatment !="Control",],
+    mapping = aes(x = group, y = value, fill = treatment),
+    position = position_jitterdodge(jitter.width = 0.5),
+    size = 0.7
+  ) +
+  labs(x = "", y = "GWC connectivity score (Spearman)", fill = "")+
+  theme_bw() + 
+  theme(
+    text = element_text(size = 20),
+    axis.title = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 20, color = "black"),
+    legend.text = element_text(size = 20, color = "black")
+  ) +
+  scale_fill_manual(values = c(blue, red, brown))
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3D_BRCA_preRpreS_gwc_connect_cov_tcga_weighted_spearman",
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  p,
+  width = 9, height = 5
+)
+```
+
+### Weighted pearson
+
+```{r}
+res1 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_tcga_weighted_pearson", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold"
+  )
+res1 <- res1[1:20, ]
+res1.df = reshape2::melt(res1, id.vars = "p_threshold", variable.name = "treatment")
+res1.df$group = "TCGA"
+
+res2 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_cov_weighted_pearson", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold")
+res2 <- res2[1:20, ]
+res2.df = reshape2::melt(res2, id.vars = "p_threshold", variable.name = "treatment")
+res2.df$group = "COV362"
+
+res.df = rbind.data.frame(res1.df, res2.df)
+res.df$group <- factor(res.df$group, levels = c("TCGA", "COV362"))
+res.df$treatment <- factor(res.df$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
+
+stat.test <- res.df %>%
+  dplyr::group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "NK") %>%
+  add_xy_position(
+    x = "group", dodge = 0.8,
+    step.increase = 0.05
+  ) %>%
+  add_significance("p")
+stat.test
+
+p <- ggboxplot(
+  res.df,
+  x = "group", y = "value", fill = "treatment",
+  outlier.shape = NA
+) +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    bracket.nudge.y = -0.01,
+    size = 5
+  ) +
+  geom_point(
+    data = res.df[res.df$treatment !="Control",],
+    mapping = aes(x = group, y = value, fill = treatment),
+    position = position_jitterdodge(jitter.width = 0.5),
+    size = 0.7
+  ) +
+  labs(x = "", y = "GWC connectivity score (pearson)", fill = "")+
+  theme_bw() + 
+  theme(
+    text = element_text(size = 20),
+    axis.title = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 20, color = "black"),
+    legend.text = element_text(size = 20, color = "black")
+  ) +
+  scale_fill_manual(values = c(blue, red, brown))
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3D_BRCA_preRpreS_gwc_connect_cov_tcga_weighted_pearson",
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  p,
+  width = 9, height = 5
+)
+```
+
+## GSEA connectivity score
+
+### BRCAness value is -log2FC
+
+```{r}
+res1 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gsea_connect_tcga_BRCAness_log2FC", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold"
+  )
+res1 <- res1[1:20, ]
+res1.df = reshape2::melt(res1, id.vars = "p_threshold", variable.name = "treatment")
+res1.df$group = "TCGA"
+
+res2 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gsea_connect_cov_BRCAness_log2FC", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold")
+res2 <- res2[1:20, ]
+res2.df = reshape2::melt(res2, id.vars = "p_threshold", variable.name = "treatment")
+res2.df$group = "COV362"
+
+res.df = rbind.data.frame(res1.df, res2.df)
+res.df$group <- factor(res.df$group, levels = c("TCGA", "COV362"))
+res.df$treatment <- factor(res.df$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
+
+stat.test <- res.df %>%
+  dplyr::group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "NK") %>%
+  add_xy_position(
+    x = "group", dodge = 0.8,
+    step.increase = 0.05
+  ) %>%
+  add_significance("p")
+stat.test
+
+p <- ggboxplot(
+  res.df,
+  x = "group", y = "value", fill = "treatment",
+  outlier.shape = NA
+) +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    bracket.nudge.y = -0.01,
+    size = 5
+  ) +
+  geom_point(
+    data = res.df[res.df$treatment !="Control",],
+    mapping = aes(x = group, y = value, fill = treatment),
+    position = position_jitterdodge(jitter.width = 0.5),
+    size = 0.7
+  ) +
+  labs(x = "", y = "GSEA connectivity score", fill = "")+
+  theme_bw() + 
+  theme(
+    text = element_text(size = 20),
+    axis.title = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 20, color = "black"),
+    legend.text = element_text(size = 20, color = "black")
+  ) +
+  scale_fill_manual(values = c(blue, red, brown))
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3D_BRCA_preRpreS_gsea_connect_cov_tcga_BRCAness_log2FC",
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  p,
+  width = 9, height = 5
+)
+```
+
+### BRCAness value is -sign of log2FC *  -log10 p value
+
+```{r}
+res1 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gsea_connect_tcga_BRCAness_pvalue", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold"
+  )
+res1 <- res1[1:20, ]
+res1.df = reshape2::melt(res1, id.vars = "p_threshold", variable.name = "treatment")
+res1.df$group = "TCGA"
+
+res2 <- read.csv(
+  paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gsea_connect_cov_BRCAness_pvalue", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", "p_threshold")
+res2 <- res2[1:20, ]
+res2.df = reshape2::melt(res2, id.vars = "p_threshold", variable.name = "treatment")
+res2.df$group = "COV362"
+
+res.df = rbind.data.frame(res1.df, res2.df)
+res.df$group <- factor(res.df$group, levels = c("TCGA", "COV362"))
+res.df$treatment <- factor(res.df$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
+
+stat.test <- res.df %>%
+  dplyr::group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "NK") %>%
+  add_xy_position(
+    x = "group", dodge = 0.8,
+    step.increase = 0.05
+  ) %>%
+  add_significance("p")
+stat.test
+
+p <- ggboxplot(
+  res.df,
+  x = "group", y = "value", fill = "treatment",
+  outlier.shape = NA
+) +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    bracket.nudge.y = -0.01,
+    size = 5
+  ) +
+  geom_point(
+    data = res.df[res.df$treatment !="Control",],
+    mapping = aes(x = group, y = value, fill = treatment),
+    position = position_jitterdodge(jitter.width = 0.5),
+    size = 0.7
+  ) +
+  labs(x = "", y = "GSEA connectivity score", fill = "")+
+  theme_bw() + 
+  theme(
+    text = element_text(size = 20),
+    axis.title = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 20, color = "black"),
+    legend.text = element_text(size = 20, color = "black")
+  ) +
+  scale_fill_manual(values = c(blue, red, brown))
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3D_BRCA_preRpreS_gsea_connect_cov_tcga_BRCAness_pvalue",
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  p,
+  width = 9, height = 5
+)
+```
+
