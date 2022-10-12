@@ -33,6 +33,7 @@ library(irlba) # for fast pca
 library(gridExtra) # Merge multiple ggplots with 'grid.arrange' function
 library(reshape2)
 library(car) # scatterplot combined with barplot
+library(PharmacoGx)
 output_dir <- "./data/output/"
 if (!dir.exists(output_dir)){
   dir.create(output_dir, recursive = TRUE)
@@ -3358,6 +3359,8 @@ log2FC_table <- log2FC_table %>%
 length(intersect(data$symbol, log2FC_table$symbol))
 ```
 
+## Pearson correlation coefficient
+
 ```{r}
 treatments <- c("Carbo", "NK", "Olaparib")
 data_merge <- data %>% 
@@ -3515,6 +3518,8 @@ for (t in treatments) {
 }
 ```
 
+## Pearson correlation coefficient on sister conserved genes
+
 ```{r}
 treatments <- c("Carbo", "NK", "Olaparib")
 data_merge <- data %>% 
@@ -3670,7 +3675,296 @@ for (t in treatments) {
 }
 ```
 
-Visualization
+## Connectivity score (GSEA) on sister conserved genes
+
+```{r}
+treatments <- c("Carbo", "NK", "Olaparib")
+
+data_merge <- data %>% 
+  left_join(
+    log2FC_table,
+    by = "symbol"
+  ) %>% 
+  filter(conserve_gene == TRUE)
+drugs <- colnames(data)[-1]
+
+for (t in treatments) {
+  df <- NULL
+  for (i in drugs){
+    
+    drug_signature <- data_merge[[i]]
+    names(drug_signature) <- data_merge$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    preR_signature <- data_merge[[paste0(t, "_log2FC_preR_preS_adj")]]
+    names(preR_signature) <- data_merge$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    
+    tmp <- data.frame(
+      drug = i,
+      connect_score_log2FC_preR_preS_adj = connect[1],
+      connect_p_log2FC_preR_preS_adj = connect[2],
+      pearson_n_log2FC_preR_preS_adj = length(preR_signature)
+    )
+    
+    # preR-preS
+    
+    preR_signature <- data_merge[[paste0(t, "_log2FC_preR_preS")]]
+    names(preR_signature) <- data_merge$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+   
+    tmp$connectivity_score_log2FC_preR_preS = connect[1]
+    tmp$connectivity_p_log2FC_preR_preS = connect[2]
+    tmp$connectivity_n_log2FC_preR_preS = length(preR_signature)
+    
+    # filter by bootstrap p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05, ]
+    
+    drug_signature <- data_tmp[[i]]
+    names(drug_signature) <- data_tmp$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    
+    preR_signature <- data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]]
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    
+    cor <- cor.test(
+      data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
+      method = "pearson",
+      use = "complete"
+    )
+    tmp$connectivity_score_log2FC_preR_preS_adj_boot_p = connect[1]
+    tmp$connectivity_p_log2FC_preR_preS_adj_boot_p = connect[2]
+    tmp$connectivity_n_log2FC_preR_preS_adj_boot_p = length(preR_signature)
+    
+    # filter by permutation p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05, ]
+    
+    drug_signature <- data_tmp[[i]]
+    names(drug_signature) <- data_tmp$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    
+    preR_signature <- data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]]
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    
+    tmp$connectivity_score_log2FC_preR_preS_adj_perm_p = connect[1]
+    tmp$connectivity_p_log2FC_preR_preS_adj_perm_p = connect[2]
+    tmp$connectivity_n_log2FC_preR_preS_adj_perm_p = length(preR_signature)
+
+    # filter by permutation p < 0.05 and bootstrap p < 0.05
+    data_tmp <- data_merge[
+      data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05 &
+        data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05,
+      ]
+    
+    drug_signature <- data_tmp[[i]]
+    names(drug_signature) <- data_tmp$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    
+    preR_signature <- data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]]
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    tmp$connectivity_score_log2FC_preR_preS_adj_perm_boot_p = connect[1]
+    tmp$connectivity_p_log2FC_preR_preS_adj_perm_boot_p = connect[2]
+    tmp$connectivity_n_log2FC_preR_preS_adj_perm_boot_p = length(preR_signature)
+    
+    # filter by preR-preS adjusted p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_preR_preS_p_adj")]] < 0.05, ]
+    
+    drug_signature <- data_tmp[[i]]
+    names(drug_signature) <- data_tmp$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    
+    preR_signature <- data_tmp[[paste0(t, "_log2FC_preR_preS")]]
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    
+    tmp$connectivity_score_log2FC_preR_preS_p_adj = connect[1]
+    tmp$connectivity_p_log2FC_preR_preS_p_adj = connect[2]
+    tmp$connectivity_n_log2FC_preR_preS_p_adj = length(preR_signature)
+    
+    # filter by preR-preS p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_preR_preS_p")]] < 0.05, ]
+    drug_signature <- data_tmp[[i]]
+    names(drug_signature) <- data_tmp$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    
+    preR_signature <- data_tmp[[paste0(t, "_log2FC_preR_preS")]]
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    
+    tmp$connectivity_score_log2FC_preR_preS_p = connect[1]
+    tmp$connectivity_p_log2FC_preR_preS_p = connect[2]
+    tmp$connectivity_n_log2FC_preR_preS_p = length(preR_signature)
+    
+    # posT-preT
+    drug_signature <- data_merge[[i]]
+    names(drug_signature) <- data_merge$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    preR_signature <- data_merge[[paste0(t, "_log2FC_posT_preT")]]
+    names(preR_signature) <- data_merge$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+
+    tmp$connectivity_score_log2FC_posT_preT = connect[1]
+    tmp$connectivity_p_log2FC_posT_preT = connect[2]
+    tmp$connectivity_n_log2FC_posT_preT = length(preR_signature)
+    
+    # posT-preT adjusted growth control
+    drug_signature <- data_merge[[i]]
+    names(drug_signature) <- data_merge$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    preR_signature <- data_merge[[paste0(t, "_log2FC_posT_preT")]]
+    names(preR_signature) <- data_merge$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+
+    tmp$connectivity_score_log2FC_posT_preT_adj = connect[1]
+    tmp$connectivity_p_log2FC_posT_preT_adj = connect[2]
+    tmp$connectivity_n_log2FC_posT_preT_adj = length(preR_signature)
+    
+    # filter by posT-preT adjusted p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_posT_preT_p_adj")]] < 0.05, ]
+    drug_signature <- data_tmp[[i]]
+    names(drug_signature) <- data_tmp$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    
+    preR_signature <- data_tmp[[paste0(t, "_log2FC_posT_preT")]]
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    
+    tmp$connectivity_score_log2FC_posT_preT_p_adj = connect[1]
+    tmp$connectivity_p_log2FC_posT_preT_p_adj = connect[2]
+    tmp$connectivity_n_log2FC_posT_preT_p_adj = length(preR_signature)
+    
+    # filter by posT-preT p < 0.05
+    data_tmp <- data_merge[data_merge[[paste0(t, "_posT_preT_p")]] < 0.05, ]
+    drug_signature <- data_tmp[[i]]
+    names(drug_signature) <- data_tmp$symbol
+    drug_signature <- na.omit(drug_signature)
+    
+    # preR-preS adjusted growth control
+    
+    preR_signature <- data_tmp[[paste0(t, "_log2FC_posT_preT")]]
+    names(preR_signature) <- data_tmp$symbol
+    preR_signature <- na.omit(preR_signature)
+    
+    connect <- connectivityScore(
+      x = drug_signature,
+      y = preR_signature,
+      method = "fgsea",
+      nperm = 1000
+    )
+    tmp$connectivity_score_log2FC_posT_preT_p = connect[1]
+    tmp$connectivity_p_log2FC_posT_preT_p = connect[2]
+    tmp$connectivity_n_log2FC_posT_preT_p = length(preR_signature)
+    
+    df <- rbind.data.frame(df, tmp)
+  }
+  df <- df %>%
+    left_join(
+      drug_anno_match,
+      by = c("drug" = "match_id")
+    )
+  write.csv(
+    df,
+    paste0(
+      sub_output_dir,
+      t,
+      "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      ),
+    row.names = FALSE)
+}
+```
+
+## Visualization
 
 ```{r}
 for (t in treatments){
