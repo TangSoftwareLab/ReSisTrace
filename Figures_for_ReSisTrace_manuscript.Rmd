@@ -1573,7 +1573,9 @@ for (t in treatment){
     "_control_bootstrap_permutation_summary.csv")
   )
   tmp[[paste0(t, "_log2FC_preR_preS_adj")]] <- tmp$mean_log2FC_treat - tmp$mean_log2FC_ctrl
-  tmp <- tmp[, c("ensembl", "symbol", paste0(t, "_log2FC_preR_preS_adj"))]
+  tmp[[paste0(t, "_boot_p")]] <- tmp[[paste0("boot_", t, "_ctrl_p_value")]]
+  tmp[[paste0(t, "_perm_p")]] <- tmp[[paste0("perm_", t, "_ctrl_p_value")]]
+  tmp <- tmp[, c("ensembl", "symbol", paste0(t, "_log2FC_preR_preS_adj"), paste0(t, "_boot_p"), paste0(t, "_perm_p"))]
   if (is.null(deg)){
     deg <- tmp
   } else {
@@ -1592,8 +1594,8 @@ for (s in LETTERS[1:5]){
       s,
       "_vs_others_DEG.csv")
     ) %>% 
-    select(X, avg_log2FC)
-  colnames(CNV_deg) <- c("ensembl", paste0("log2FC_", s))
+    select(X, avg_log2FC, p_val_adj)
+  colnames(CNV_deg) <- c("ensembl", paste0("log2FC_", s), paste0("p_adj_", s))
   deg <- deg %>% 
     left_join(CNV_deg, by = "ensembl")
 }
@@ -1605,6 +1607,8 @@ write.csv(deg, paste0(sub_output_dir, "Figure2D_log2FC_preR_preS_CNV_subclone.cs
 deg <- deg %>% 
   filter(conserve_gene)
 ```
+
+#### Correlation coefficient
 
 ```{r}
 treatments <- c("NK", "Carbo", "Olaparib")
@@ -1682,6 +1686,99 @@ ggplot(
      )
 ggsave(
   paste0(sub_output_dir, "Figure2D_Pearson_correlation_coefficients_color_by_subclones.pdf"),
+  width = 10, height = 5)
+```
+
+#### Connectivity score
+
+```{r include=FALSE}
+treatments <- c("NK", "Carbo", "Olaparib")
+subclones <- c("A", "B", "C", "D", "E")
+plot_table <- NULL
+for (t in treatments){
+  for (s in subclones){
+    x <- data.frame(
+      value = deg[[paste0(t, "_log2FC_preR_preS_adj")]],
+      sig = deg[[paste0(t, "_boot_p")]]
+    )
+    rownames(x) <- deg$ensembl
+    y <- data.frame(
+      value = deg[[paste0("log2FC_", s)]],
+      sig = deg[[paste0("p_adj_", s)]]
+    )
+    rownames(y) <- deg$ensembl
+    connect <- connectivityScore(
+      x = x,
+      y = y,
+      method='gwc',
+      gwc.method='spearman',
+      nperm = 1000
+      )
+    
+    df <- data.frame(
+      treatment = case_when(
+        t == "Carbo" ~ "Carboplatin", 
+        TRUE ~ t
+      ),
+      subclone = s,
+      connectivity_score = connect[1],
+      p_value = connect[2],
+      sig = case_when(
+        connect[2] < .05 & connect[2] >= .01 ~ "*", 
+        connect[2] < .01 & connect[2] >= .001 ~ "**", 
+        connect[2] < .001 ~ "***", 
+        TRUE ~ ""
+      ),
+      n = sum(
+        !is.na(deg[[paste0("log2FC_", s)]]) & 
+        !is.na(deg[[paste0(t, "_log2FC_preR_preS_adj")]])
+      )
+    )
+    if (is.null(plot_table)){
+      plot_table <- df
+    } else {
+      plot_table <- rbind.data.frame(plot_table, df)
+    }
+  }
+}
+plot_table$sig_y <- plot_table$connectivity_score + 0.05
+plot_table$sig_y[plot_table$connectivity_score < 0] <- plot_table$connectivity_score[plot_table$connectivity_score < 0] - 0.05
+write.csv(plot_table, paste0(sub_output_dir, "Figure2D_connectivity_score.csv"),
+          row.names = FALSE)
+plot_table$treatment <- factor(plot_table$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
+```
+
+```{r}
+color <- c("A" = "#DC0000FF", "B" = "#B09C85FF", "C" = "#00A087FF", "D" = "#91D1C2FF", "E" = "#3C5488FF")
+
+ggplot(
+  plot_table,
+  aes(y = connectivity_score, x = treatment, fill = subclone)
+  ) +
+  scale_fill_manual(
+    values = color
+  ) + 
+  geom_bar(stat="identity", position="dodge") + 
+  # geom_errorbar(
+  #   aes(ymin=CI_lower, ymax=CI_upper),
+  #   position=position_dodge(width=.9),
+  #   width=.15
+  # ) + 
+  geom_text(
+    aes(y=sig_y, label=sig),
+    position=position_dodge(width=.9),
+    size = 6
+  ) + 
+  labs(x="", y="GWC connectivity score (Spearman)", fill = "") +
+  theme_classic() +
+  theme(
+     legend.key = element_blank(), 
+     axis.text = element_text(size = 21, colour = "black"),
+     axis.title = element_text(size = 21),
+     legend.text = element_text(size = 21)
+     )
+ggsave(
+  paste0(sub_output_dir, "Figure2D_connectivity_score_color_by_subclones.pdf"),
   width = 10, height = 5)
 ```
 
@@ -2085,6 +2182,86 @@ ggsurvplot(
   # annotate("text", x = 150, y =0.75, label = paste0("P = ", round(s$logtest[3], 2))) +
   guides(colour = guide_legend(nrow = 2))
 dev.off()
+```
+
+## C: HRD experiment
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "red2", "blue2", "brown2", "green2","red2", "blue3")))
+sub_output_dir <- paste0(output_dir, "Figure3/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+ return(data_sum)
+}
+```
+
+The experiment tables are from Jun
+
+### COV362
+
+```{r}
+plot_table <- openxlsx::read.xlsx("./data/input/HRD_experiment/COV362-4-5-6-20220914-6DAY-BLACK.xlsx", rows = 59:73, cols = 2:6)
+plot_table$`Olaparib.(uM)` <- rep(c("COV362", "COV362-control", "COV362-BRCA1"), each = 4)
+plot_table <- plot_table %>% 
+  dplyr::rename("cell" = "Olaparib.(uM)") %>% 
+  pivot_longer(!cell, names_to = "Olaparib", values_to = "Viability")
+
+plot_table$cell <- factor(plot_table$cell, levels = c("COV362", "COV362-control", "COV362-BRCA1"))
+col = c("#C6809E", "#B36981", "#659698")
+
+stat.test <- plot_table %>%
+  group_by(Olaparib) %>%
+  t_test(Viability ~ cell) %>%
+  add_xy_position(
+    fun = "mean_sd", x = "Olaparib", dodge = 0.8,
+    step.increase = 0.05) %>%
+  add_significance("p")
+
+p <- ggbarplot(
+  plot_table,
+  x = "Olaparib",
+  y = "Viability",
+  add = "mean_sd",
+  fill = "cell",
+  palette = col,
+  position = position_dodge(0.8)) +
+  stat_pvalue_manual(
+    stat.test,  label = "p.signif", tip.length = 0.01,
+    # bracket.nudge.y = - 2,
+    hide.ns = TRUE,
+    size = 5
+  ) +
+  labs(
+    x = "Olaparib (uM)",
+    y = "Cell viability (%)"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 10),
+    legend.title = element_blank(),
+    text = element_text(size = 20, color = "black"),
+    axis.text = element_text(size = 15, color = "black")
+  )
+ggsave(
+  paste0(sub_output_dir, "Figure3C_COV362_Olaparib.pdf"),
+  width = 4.5, height = 4
+)
+ggsave(
+  paste0(sub_output_dir, "Figure3C_COV362_Olaparib.png"),
+  width = 6, height = 4
+)
 ```
 
 ## D: Box plot for correlation coefficients of BRCAness signature vs. pre-sensitivity signatures (seurat logFC)
@@ -3677,7 +3854,7 @@ for (t in treatments) {
 
 ## Connectivity score (GSEA) on sister conserved genes
 
-```{r}
+```{r include=FALSE}
 treatments <- c("Carbo", "NK", "Olaparib")
 
 data_merge <- data %>% 
@@ -3966,6 +4143,8 @@ for (t in treatments) {
 
 ## Visualization
 
+### Correlation coefficient
+
 ```{r}
 for (t in treatments){
   # preR_preS
@@ -4023,7 +4202,7 @@ for (t in treatments){
     select(drug, starts_with("pearson_r")) %>% 
     select(drug, contains("posT_preT"))
   colnames(plot_table) <- gsub("pearson_r_log2FC_", "", colnames(plot_table))
-  pdf(file = paste0(sub_output_dir, t, "_posT_preT_heatmap.pdf"))
+  pdf(file = paste0(sub_output_dir, t, "_posT_preT_connectivity_p_heatmap.pdf"))
   heatmap(
     as.matrix(plot_table[, -1]),
     labRow = plot_table$drug,
@@ -4067,6 +4246,581 @@ for (t in treatments){
     select(drug, contains("preR_preS")) %>% 
     filter_at(vars(starts_with("pearson_p")), all_vars(. < 0.05)) %>% 
     filter_at(vars(starts_with("pearson_r")), all_vars(. < 0))
+}
+```
+
+### Connectivity score
+
+#### heatmap
+
+```{r}
+for (t in treatments){
+  plot_table <- read.csv(
+    paste0(
+      sub_output_dir,
+      t,
+      "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+    )
+  ) %>% 
+    filter_at(vars(starts_with("connectivity_p")), any_vars(. < 0.05))
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+  plot_table <- plot_table %>% 
+    select(drug = pert_iname, starts_with("connectivity_score")) %>% 
+    select(drug, contains("preR_preS"))
+  colnames(plot_table) <- gsub("connectivity_score_log2FC_", "", colnames(plot_table))
+  pdf(file = paste0(sub_output_dir, t, "_preR_preS_connectivity_score_heatmap.pdf"))
+  heatmap(
+    as.matrix(plot_table[, -1]), 
+    labRow = plot_table$drug,
+    cexCol = 0.8,
+    margins = c(10, 5)
+  )
+  dev.off()
+}
+```
+
+#### Volcano plot
+
+```{r}
+volcano_sub_dir <- paste0(sub_output_dir, "volcano_plot/")
+if(!dir.exists(volcano_sub_dir)){
+  dir.create(volcano_sub_dir)
+}
+
+for (t in treatments){
+  highlight_drug <- read_xlsx(
+    paste0(
+      sub_output_dir,
+      t,
+      "_connectivity_score_preR_vs_drug_signature_sister_conserved.xlsx"
+    ),
+    sheet = 2
+  ) %>% 
+  select(drug) %>% 
+  unlist()
+  # preR_preS_adj
+  plot_table <- read.csv(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      )
+    ) %>% 
+      select(
+        pert_iname,
+        drug,
+        x = `connectivity_score_log2FC_preR_preS_adj`,
+        p = `connectivity_p_log2FC_preR_preS_adj`,
+        n = `connectivity_n_log2FC_preR_preS_adj`) %>% 
+      mutate(
+        y = -log10(p),
+        sig = p < 0.05
+      )
+  plot_table$color <- "grey"
+  plot_table$color[plot_table$x < 0 & plot_table$p < 0.05] <- "blue"
+  plot_table$color[plot_table$x > 0 & plot_table$p < 0.05] <- "red"
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+  
+  highlight <- filter(plot_table, drug %in% highlight_drug)
+  
+  p <- ggplot() +
+     theme_classic() +
+     theme(
+         legend.key = element_blank(), 
+         axis.text = element_text(size = 20, colour = "black"),
+         axis.title = element_text(size = 20),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         plot.subtitle = element_text(size = 15, hjust = 0.5)
+         ) +
+     labs(x = expression("GWC Connectivity Score"),
+          y = expression("-log"[10]~"(P value)"),
+          title="PreR-preS log2FC adjusted control \n No filter",
+          subtitle = paste0(unique(plot_table$n), " genes in PreR signature")) +
+     geom_point(
+         aes(x = x, y = y, colour=color),
+         alpha = 0.5,
+         size = 5,
+         data = plot_table,
+         show.legend = FALSE) +
+      scale_color_manual(
+        values = c(blue2,"grey70", red2), 
+      ) +
+      geom_point(
+        aes(x = x, y = y),
+        shape = 1,
+        size = 5,
+        data = highlight,
+        show.legend = FALSE) +
+      geom_text_repel(
+        aes(x = x, y = y, label = pert_iname),
+        size = 6.5,
+        data = highlight,
+        # parse = TRUE,
+        box.padding = 1
+      )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_sister_conserved_volcano.pdf"),
+    p,
+    width = 6,
+    height = 6
+  )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_sister_conserved_volcano.png"),
+    p,
+    width = 6,
+    height = 6
+  )
+  
+  # preR_preS
+  plot_table <- read.csv(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      )
+    ) %>% 
+      select(
+        pert_iname,
+        drug,
+        x = `connectivity_score_log2FC_preR_preS`,
+        p = `connectivity_p_log2FC_preR_preS`,
+        n = `connectivity_n_log2FC_preR_preS`) %>% 
+      mutate(
+        y = -log10(p),
+        sig = p < 0.05
+      )
+  plot_table$color <- "grey"
+  plot_table$color[plot_table$x < 0 & plot_table$p < 0.05] <- "blue"
+  plot_table$color[plot_table$x > 0 & plot_table$p < 0.05] <- "red"
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+
+  highlight <- filter(plot_table, drug %in% highlight_drug)
+  
+  p <- ggplot() +
+     theme_classic() +
+     theme(
+         legend.key = element_blank(), 
+         axis.text = element_text(size = 20, colour = "black"),
+         axis.title = element_text(size = 20),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         plot.subtitle = element_text(size = 15, hjust = 0.5)
+         ) +
+     labs(x = expression("GWC Connectivity Score"),
+          y = expression("-log"[10]~"(P value)"),
+          title="PreR-preS log2FC \n No filter",
+          subtitle = paste0(unique(plot_table$n), " genes in PreR signature")) +
+     geom_point(
+         aes(x = x, y = y, colour=color),
+         alpha = 0.5,
+         size = 5,
+         data = plot_table,
+         show.legend = FALSE) +
+      scale_color_manual(
+        values = c(blue2,"grey70", red2), 
+      ) +
+      geom_point(
+        aes(x = x, y = y),
+        shape = 1,
+        size = 5,
+        data = highlight,
+        show.legend = FALSE) +
+      geom_text_repel(
+        aes(x = x, y = y, label = pert_iname),
+        size = 6.5,
+        data = highlight,
+        # parse = TRUE,
+        box.padding = 1
+      )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_sister_conserved_volcano.pdf"),
+    p,
+    width = 6,
+    height = 6
+  )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_sister_conserved_volcano.png"),
+    p,
+    width = 6,
+    height = 6
+  )
+  
+  # preR_preS_adj_boot_p
+  plot_table <- read.csv(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      )
+    ) %>% 
+      select(
+        pert_iname,
+        drug,
+        x = `connectivity_score_log2FC_preR_preS_adj_boot_p`,
+        p = `connectivity_p_log2FC_preR_preS_adj_boot_p`,
+        n = `connectivity_n_log2FC_preR_preS_adj_boot_p`) %>% 
+      mutate(
+        y = -log10(p),
+        sig = p < 0.05
+      )
+  plot_table$color <- "grey"
+  plot_table$color[plot_table$x < 0 & plot_table$p < 0.05] <- "blue"
+  plot_table$color[plot_table$x > 0 & plot_table$p < 0.05] <- "red"
+  # plot_table$Term <- paste0("bold('", plot_table$Term, "')")
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+
+  highlight <- filter(plot_table, drug %in% highlight_drug)
+  
+  p <- ggplot() +
+     theme_classic() +
+     theme(
+         legend.key = element_blank(), 
+         axis.text = element_text(size = 20, colour = "black"),
+         axis.title = element_text(size = 20),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         plot.subtitle = element_text(size = 15, hjust = 0.5)
+         ) +
+     labs(x = expression("GWC Connectivity Score"),
+          y = expression("-log"[10]~"(P value)"),
+          title="PreR-preS log2FC adjusted control \n Bootstrap P < 0.05",
+          subtitle = paste0(unique(plot_table$n), " genes in PreR signature")) +
+     geom_point(
+         aes(x = x, y = y, colour=color),
+         alpha = 0.5,
+         size = 5,
+         data = plot_table,
+         show.legend = FALSE) +
+      scale_color_manual(
+        values = c(blue2,"grey70", red2), 
+      ) +
+      geom_point(
+        aes(x = x, y = y),
+        shape = 1,
+        size = 5,
+        data = highlight,
+        show.legend = FALSE) +
+      geom_text_repel(
+        aes(x = x, y = y, label = pert_iname),
+        size = 6.5,
+        data = highlight,
+        # parse = TRUE,
+        box.padding = 1
+      )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_boot_p_sister_conserved_volcano.pdf"),
+    p,
+    width = 6,
+    height = 6
+  )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_boot_p_sister_conserved_volcano.png"),
+    p,
+    width = 6,
+    height = 6
+  )
+  
+    # preR_preS_adj_perm_p
+  plot_table <- read.csv(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      )
+    ) %>% 
+      select(
+        pert_iname,
+        drug,
+        x = `connectivity_score_log2FC_preR_preS_adj_perm_p`,
+        p = `connectivity_p_log2FC_preR_preS_adj_perm_p`,
+        n = `connectivity_n_log2FC_preR_preS_adj_perm_p`) %>% 
+      mutate(
+        y = -log10(p),
+        sig = p < 0.05
+      )
+  plot_table$color <- "grey"
+  plot_table$color[plot_table$x < 0 & plot_table$p < 0.05] <- "blue"
+  plot_table$color[plot_table$x > 0 & plot_table$p < 0.05] <- "red"
+  # plot_table$Term <- paste0("bold('", plot_table$Term, "')")
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+  
+  highlight <- filter(plot_table, drug %in% highlight_drug)
+  
+  p <- ggplot() +
+     theme_classic() +
+     theme(
+         legend.key = element_blank(), 
+         axis.text = element_text(size = 20, colour = "black"),
+         axis.title = element_text(size = 20),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         plot.subtitle = element_text(size = 15, hjust = 0.5)
+         ) +
+     labs(x = expression("GWC Connectivity Score"),
+          y = expression("-log"[10]~"(P value)"),
+          title="PreR-preS log2FC adjusted control \n Permutation P < 0.05",
+          subtitle = paste0(unique(plot_table$n), " genes in PreR signature")) +
+     geom_point(
+         aes(x = x, y = y, colour=color),
+         alpha = 0.5,
+         size = 5,
+         data = plot_table,
+         show.legend = FALSE) +
+      scale_color_manual(
+        values = c(blue2,"grey70", red2), 
+      ) +
+      geom_point(
+        aes(x = x, y = y),
+        shape = 1,
+        size = 5,
+        data = highlight,
+        show.legend = FALSE) +
+      geom_text_repel(
+        aes(x = x, y = y, label = pert_iname),
+        size = 6.5,
+        data = highlight,
+        # parse = TRUE,
+        box.padding = 1
+      )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_p_sister_conserved_volcano.pdf"),
+    p,
+    width = 6,
+    height = 6
+  )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_p_sister_conserved_volcano.png"),
+    p,
+    width = 6,
+    height = 6
+  )
+  
+    # preR_preS_adj_perm_boot_p
+  plot_table <- read.csv(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      )
+    ) %>% 
+      select(
+        pert_iname,
+        drug,
+        x = `connectivity_score_log2FC_preR_preS_adj_perm_boot_p`,
+        p = `connectivity_p_log2FC_preR_preS_adj_perm_boot_p`,
+        n = `connectivity_n_log2FC_preR_preS_adj_perm_boot_p`) %>% 
+      mutate(
+        y = -log10(p),
+        sig = p < 0.05
+      )
+  plot_table$color <- "grey"
+  plot_table$color[plot_table$x < 0 & plot_table$p < 0.05] <- "blue"
+  plot_table$color[plot_table$x > 0 & plot_table$p < 0.05] <- "red"
+  # plot_table$Term <- paste0("bold('", plot_table$Term, "')")
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+  
+  highlight <- filter(plot_table, drug %in% highlight_drug)
+  
+  p <- ggplot() +
+     theme_classic() +
+     theme(
+         legend.key = element_blank(), 
+         axis.text = element_text(size = 20, colour = "black"),
+         axis.title = element_text(size = 20),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         plot.subtitle = element_text(size = 15, hjust = 0.5)
+         ) +
+     labs(x = expression("GWC Connectivity Score"),
+          y = expression("-log"[10]~"(P value)"),
+          title="PreR-preS log2FC adjust control \n Bootstrap, permutation P < 0.05",
+          subtitle = paste0(unique(plot_table$n), " genes in PreR signature")) +
+     geom_point(
+         aes(x = x, y = y, colour=color),
+         alpha = 0.5,
+         size = 5,
+         data = plot_table,
+         show.legend = FALSE) +
+      scale_color_manual(
+        values = c(blue2,"grey70", red2), 
+      ) +
+      geom_point(
+        aes(x = x, y = y),
+        shape = 1,
+        size = 5,
+        data = highlight,
+        show.legend = FALSE) +
+      geom_text_repel(
+        aes(x = x, y = y, label = pert_iname),
+        size = 6.5,
+        data = highlight,
+        # parse = TRUE,
+        box.padding = 1
+      )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_boot_p_sister_conserved_volcano.pdf"),
+    p,
+    width = 6,
+    height = 6
+  )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_boot_p_sister_conserved_volcano.png"),
+    p,
+    width = 6,
+    height = 6
+  )
+  
+    # preR_preS_p_adj
+  plot_table <- read.csv(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      )
+    ) %>% 
+      select(
+        pert_iname,
+        drug,
+        x = `connectivity_score_log2FC_preR_preS_p_adj`,
+        p = `connectivity_p_log2FC_preR_preS_p_adj`,
+        n = `connectivity_n_log2FC_preR_preS_p_adj`) %>% 
+      mutate(
+        y = -log10(p),
+        sig = p < 0.05
+      )
+  plot_table$color <- "grey"
+  plot_table$color[plot_table$x < 0 & plot_table$p < 0.05] <- "blue"
+  plot_table$color[plot_table$x > 0 & plot_table$p < 0.05] <- "red"
+  # plot_table$Term <- paste0("bold('", plot_table$Term, "')")
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+  highlight <- read_xlsx(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.xlsx"
+      ),
+      sheet = 2
+    ) %>% 
+    select(drug) %>% 
+    unlist()
+  highlight <- filter(plot_table, drug %in% highlight)
+  
+  p <- ggplot() +
+     theme_classic() +
+     theme(
+         legend.key = element_blank(), 
+         axis.text = element_text(size = 20, colour = "black"),
+         axis.title = element_text(size = 20),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         plot.subtitle = element_text(size = 15, hjust = 0.5)
+         ) +
+     labs(x = expression("GWC Connectivity Score"),
+          y = expression("-log"[10]~"(P value)"),
+          title="PreR-preS log2FC \n Adjust P < 0.05",
+          subtitle = paste0(unique(plot_table$n), " genes in PreR signature")) +
+     geom_point(
+         aes(x = x, y = y, colour=color),
+         alpha = 0.5,
+         size = 5,
+         data = plot_table,
+         show.legend = FALSE) +
+      scale_color_manual(
+        values = c(blue2,"grey70", red2), 
+      ) +
+      geom_point(
+        aes(x = x, y = y),
+        shape = 1,
+        size = 5,
+        data = highlight,
+        show.legend = FALSE) +
+      geom_text_repel(
+        aes(x = x, y = y, label = pert_iname),
+        size = 6.5,
+        data = highlight,
+        # parse = TRUE,
+        box.padding = 1
+      )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_adj_sister_conserved_volcano.pdf"),
+    p,
+    width = 6,
+    height = 6
+  )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_adj_sister_conserved_volcano.png"),
+    p,
+    width = 6,
+    height = 6
+  )
+  
+    # preR_preS_p
+  plot_table <- read.csv(
+      paste0(
+        sub_output_dir,
+        t,
+        "_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"
+      )
+    ) %>% 
+      select(
+        pert_iname,
+        drug,
+        x = `connectivity_score_log2FC_preR_preS_p`,
+        p = `connectivity_p_log2FC_preR_preS_p`,
+        n = `connectivity_n_log2FC_preR_preS_p`) %>% 
+      mutate(
+        y = -log10(p),
+        sig = p < 0.05
+      )
+  plot_table$color <- "grey"
+  plot_table$color[plot_table$x < 0 & plot_table$p < 0.05] <- "blue"
+  plot_table$color[plot_table$x > 0 & plot_table$p < 0.05] <- "red"
+  plot_table$pert_iname[is.na(plot_table$pert_iname)] <- plot_table$drug[is.na(plot_table$pert_iname)]
+
+  highlight <- filter(plot_table, drug %in% highlight_drug)
+  
+  p <- ggplot() +
+     theme_classic() +
+     theme(
+         legend.key = element_blank(), 
+         axis.text = element_text(size = 20, colour = "black"),
+         axis.title = element_text(size = 20),
+         plot.title = element_text(size = 20, hjust = 0.5),
+         plot.subtitle = element_text(size = 15, hjust = 0.5)
+         ) +
+     labs(x = expression("GWC Connectivity Score"),
+          y = expression("-log"[10]~"(P value)"),
+          title="PreR-preS log2FC \n P < 0.05",
+          subtitle = paste0(unique(plot_table$n), " genes in PreR signature")) +
+     geom_point(
+         aes(x = x, y = y, colour=color),
+         alpha = 0.5,
+         size = 5,
+         data = plot_table,
+         show.legend = FALSE) +
+      scale_color_manual(
+        values = c(blue2,"grey70", red2), 
+      ) +
+      geom_point(
+        aes(x = x, y = y),
+        shape = 1,
+        size = 5,
+        data = highlight,
+        show.legend = FALSE) +
+      geom_text_repel(
+        aes(x = x, y = y, label = pert_iname),
+        size = 6.5,
+        data = highlight,
+        # parse = TRUE,
+        box.padding = 1
+      )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_sister_conserved_volcano.pdf"),
+    p,
+    width = 6,
+    height = 6
+  )
+  ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_sister_conserved_volcano.png"),
+    p,
+    width = 6,
+    height = 6
+  )
 }
 ```
 
@@ -4201,6 +4955,154 @@ write.csv(
   cor(plot_table[-1]),
   paste0(sub_output_dir, "Olaparib_DrugComb_pearson_correlation_summarize_response_across_cells.csv")
 )
+```
+
+## Drug target expression in BT cells
+
+```{r}
+# scRNA expression
+data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+```
+
+
+```{r}
+# Drug target
+treatments <- c("Carbo", "NK", "Olaparib")
+drugs <- NULL
+for (t in treatments){
+  tmp <- read_xlsx(
+    paste0(
+      "./data/output/test/", t,
+      "_connectivity_score_preR_vs_drug_signature_sister_conserved.xlsx"),
+    sheet = 2) %>% 
+    mutate(treatment = t) %>% 
+    select(
+      treatment, drug, pert_iname, clinical_phase, moa, target, broad_id, InChIKey,
+      pubchem_cid, deprecated_broad_id
+    )
+  drugs <- rbind.data.frame(drugs, tmp)
+  }
+```
+
+```{r}
+target_expression <- NULL
+for (i in 1:nrow(drugs)){
+  treatment <- drugs$treatment[i]
+  if (treatment == "Carbo"){
+    treatment <- "Carboplatin"
+  }
+  drug_targets <- drugs$target[i]
+  drug_targets <- unlist(strsplit(drug_targets, "\\|"))
+  drug_targets <- drug_targets[drug_targets != "NA"]
+  if (length(drug_targets) == 0){
+    df <- data.frame(
+      treatment = treatment,
+      drug = drugs$drug[i],
+      symbol = NA,
+      ensembl = NA,
+      mean_exp = NA,
+      non_zero = NA,
+      mean_exp_preR = NA,
+      non_zero_preR  = NA,
+      mean_exp_preS = NA,
+      non_zero_preS = NA
+    )
+  } else {
+    ensembls <- data@misc$gene_meta$ensembl[data@misc$gene_meta$symbol %in% drug_targets]
+    ensembls <- intersect(ensembls, rownames(data))
+    exp <- data@assays$RNA@data[ 
+      rownames(data) %in% ensembls,
+      which(data$time_point == "BeforeTreatment" & data$treatment == treatment)
+    ]
+    exp_preR <- data@assays$RNA@data[
+      rownames(data) %in% ensembls,
+      which(data$drugSens == "pre-resistant" & data$treatment == treatment)
+    ]
+    exp_preS <- data@assays$RNA@data[
+      rownames(data) %in% ensembls,
+      which(data$drugSens == "pre-sensitive" & data$treatment == treatment)
+    ]
+    if (length(ensembls) > 1){
+      mean_exp <- rowMeans(exp)
+      non_zero <- rowSums(exp > 0)/ncol(exp)
+      mean_exp_preR <- rowMeans(exp_preR)
+      non_zero_preR <- rowSums(exp_preR > 0)/ncol(exp_preR)
+      mean_exp_preS <- rowMeans(exp_preS)
+      non_zero_preS <- rowSums(exp_preS > 0)/ncol(exp_preS)
+      df <- data.frame(
+        ensembl = names(mean_exp),
+        mean_exp = mean_exp,
+        non_zero = non_zero[names(mean_exp)],
+        mean_exp_preR = mean_exp_preR[names(mean_exp)],
+        non_zero_preR  = non_zero_preR [names(mean_exp)],
+        mean_exp_preS = mean_exp_preS[names(mean_exp)],
+        non_zero_preS = non_zero_preS[names(mean_exp)]
+      )
+      df <- df %>% 
+        left_join(data@misc$gene_meta, by = "ensembl") %>% 
+        mutate(drug = drugs$drug[i], treatment = treatment)
+    } else if (length(ensembls) == 1) {
+      mean_exp <- mean(exp)
+      non_zero <- sum(exp > 0)/length(exp)
+      mean_exp_preR <- mean(exp_preR)
+      non_zero_preR <- sum(exp_preR > 0)/length(exp_preR)
+      mean_exp_preS <- mean(exp_preS)
+      non_zero_preS <- sum(exp_preS > 0)/length(exp_preS)
+      df <- data.frame(
+        ensembl = ensembls,
+        mean_exp = mean_exp,
+        non_zero = non_zero,
+        mean_exp_preR = mean_exp_preR,
+        non_zero_preR  = non_zero_preR,
+        mean_exp_preS = mean_exp_preS,
+        non_zero_preS = non_zero_preS,
+        symbol = data@misc$gene_meta$symbol[data@misc$gene_meta$ensembl == ensembls],
+        drug = drugs$drug[i],
+        treatment = treatment
+      )
+    } else {
+      df <- data.frame(
+        ensembl = NA,
+        mean_exp = NA,
+        non_zero = NA,
+        mean_exp_preR = NA,
+        non_zero_preR  = NA,
+        mean_exp_preS = NA,
+        non_zero_preS = NA,
+        symbol = drug_targets,
+        drug = drugs$drug[i],
+        treatment = treatment
+      )
+    }
+    left_target <- setdiff(drug_targets, df$symbol)
+    if (length(left_target) > 0){
+      tmp <- data.frame(
+        ensembl = NA,
+        mean_exp = NA,
+        non_zero = NA,
+        mean_exp_preR = NA,
+        non_zero_preR  = NA,
+        mean_exp_preS = NA,
+        non_zero_preS = NA,
+        symbol = setdiff(drug_targets, df$symbol),
+        drug = drugs$drug[i],
+        treatment = treatment
+      )
+      df <- rbind.data.frame(df, tmp)
+    }
+  }
+  target_expression <- rbind.data.frame(target_expression, df)
+}
+
+drug_target_expression <- drugs %>% 
+  select(drug, pert_iname) %>% 
+  full_join(target_expression,by = c("drug")) %>% 
+  select(
+    treatment, drug, pert_iname, target_symbol = symbol, target_ensembl = ensembl,
+    everything()) %>% 
+  arrange(treatment, drug)
+
+openxlsx::write.xlsx(drug_target_expression, file = paste0(sub_output_dir, "drug_target_expression.xlsx"))
 ```
 
 ## L100 experiment condition for selected drugs
