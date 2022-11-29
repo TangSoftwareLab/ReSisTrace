@@ -1,0 +1,464 @@
+---
+title: "Preprocess of drug combination screening data"
+author: "Shuyu Zheng"
+date: "`r Sys.Date()`"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(openxlsx)
+```
+
+```{r}
+output_dir <- "./data/input/drug_combination_raw_experiment_data/processed_response_table/"
+
+if (!dir.exists(output_dir)){
+  dir.create(output_dir)
+}
+```
+
+The drug combination experiments are performed by Jing Jiang. I get the data from her on 2022.11.10. The tables with readouts are saved in the folder "./data/input/drug_combination_raw_experiment_data/2022-11-09/"
+
+This notebook will calculate the dose-response values out from those data and generate a table that is ready for the synergyfinder R package analysis.
+
+There are two designs of the plate layout:
+
+1. Plate 1 to 6: Drug 23, 24, 30 (on dose for each drug) combined with NK cells. NK:target ratio are 0, 1, 2, 4, 6 for plate 9/10 and 0, 2, 4, 8, 12 for other plates.
+2. Plate 7, 8: Drug 25, 26 (three dosages for each drug) combined with NK cells. NK:target ratio are 0, 2, 4, 8, 12
+3. Plate 11 to 13: Drug 27, 28, 29 (three dosages for each drug) combined with Olaparib. Olaparib dosages are 2uM, 4uM, 7uM and 10uM.
+
+
+# Match drug ID to drug name
+
+```{r}
+drug_name <- data.frame(
+  id = c(23, 24, 25, 26, 27, 28, 29, 30),
+  drug_name = c(
+    "ADU-S100", "STING-IN-2", "Nocodazole", "Clofarabine", "Bortezomib",
+    "Carfilzomib", "Pyrrolidinedithiocarbamate ammonium", "H-151"
+  )
+)
+```
+
+```{r}
+files <- list.files("./data/input/drug_combination_raw_experiment_data/2022-11-09/")
+```
+
+# Combination with NK, plate 1 to 6
+
+```{r}
+for (i in 1:6){
+  file <- files[startsWith(files, paste0(i, "-"))]
+  table <- read.xlsx(
+    paste0(
+    "./data/input/drug_combination_raw_experiment_data/2022-11-09/", file
+    ),
+    rows = 15:22, cols = 3:13
+  )
+  drug1 <- "NK:target"
+  drug2_id = strsplit(file, "-")[[1]][5]
+  drug2 <- drug_name$drug_name[drug_name$id == drug2_id]
+
+  if (grepl("UWB", file)){
+    cell1 <- "UWB1.289"
+    cell2 <- "UWB1.289+BRCA1"
+    conc2 <- switch(drug2_id,
+      "23" = 0.5,
+      "24" = 0.25,
+      "30" = 0.5
+    )
+  } else if (grepl("COV", file)){
+    cell1 <- "COV362"
+    cell2 <- "COV362+BRCA1"
+    conc2 <- switch(drug2_id,
+      "23" = 1,
+      "24" = 0.5,
+      "30" = 1
+    )
+  }
+
+  conc_unit1 <- "ratio"
+  conc_unit2 <- "uM"
+  
+  # The last row is the background signal. We will remove the background signal from whole plates.
+  background <- mean(table$`12`)
+  table <- table[,1:10] - background
+  
+  # Negative control
+  NC1 <- mean(table[1:3, 5])
+  NC2 <- mean(table[1:3, 6])
+  
+  # Calculate % inhibition
+  table[, 1:5] <- 100 * (1 - table[, 1:5]/NC1)
+  table[, 6:10] <- 100 * (1 - table[, 6:10]/NC2)
+  
+  colnames(table) <- c(12, 8, 4, 2, 0, 0, 2, 4, 8, 12)
+  df1 <- table[1:3, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell1,
+      conc2 = 0,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df2 <- table[4:6, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell1,
+      conc2 = conc2,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df3 <- table[1:3, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 2,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell2,
+      conc2 = 0,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df4 <- table[4:6, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 2,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell2,
+      conc2 = conc2,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  
+  df <- Reduce(rbind.data.frame, list(df1, df2, df3, df4))
+  df$conc1 <- as.numeric(df$conc1)
+  write.csv(df, paste0(output_dir, gsub("xlsx", "csv", file)), row.names = FALSE)
+}
+```
+
+# Combination with NK, plate 7, 8
+
+```{r}
+for (i in 7:8){
+  file <- files[startsWith(files, paste0(i, "-"))]
+  table <- read.xlsx(
+    paste0(
+    "./data/input/drug_combination_raw_experiment_data/2022-11-09/", file
+    ),
+    rows = 15:22, cols = 3:13
+  )
+  drug1 <- "NK:target"
+  drug2_id = strsplit(file, "-")[[1]][3]
+  drug2 <- drug_name$drug_name[drug_name$id == drug2_id]
+  cell <- "KURAMOCHI"
+  conc2 <- switch(drug2_id,
+      "25" = c(0, 10, 20, 40),
+      "26" = c(0, 1, 3.3, 10),
+    )
+  conc_unit2 <- switch(drug2_id,
+      "25" = "nM",
+      "26" = "uM",
+    )
+  conc_unit1 <- "ratio"
+  # The last row is the background signal. We will remove the background signal from whole plates.
+  background <- mean(table$`12`)
+  table <- table[,1:10] - background
+  
+  # Negative control
+  NC1 <- mean(table[1:3, 5])
+  NC2 <- mean(table[1:3, 6])
+  
+  # Calculate % inhibition
+  table[, 1:5] <- 100 * (1 - table[, 1:5]/NC1)
+  table[, 6:10] <- 100 * (1 - table[, 6:10]/NC1)
+  
+  colnames(table) <- c(12, 8, 4, 2, 0, 0, 2, 4, 8, 12)
+  df1 <- table[1:3, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[1],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df2 <- table[4:6, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[2],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df3 <- table[1:3, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[3],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df4 <- table[4:6, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[4],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  
+  df <- Reduce(rbind.data.frame, list(df1, df2, df3, df4))
+  df$conc1 <- as.numeric(df$conc1)
+  write.csv(df, paste0(output_dir, gsub("xlsx", "csv", file)), row.names = FALSE)
+}
+```
+
+# Combination with NK, plate 9, 10
+
+```{r}
+for (i in 9:10){
+  file <- files[startsWith(files, paste0(i, "-"))]
+  table <- read.xlsx(
+    paste0(
+    "./data/input/drug_combination_raw_experiment_data/2022-11-09/", file
+    ),
+    rows = 15:22, cols = 3:13
+  )
+  drug1 <- "NK:target"
+  drug2_id = strsplit(file, "-")[[1]][5]
+  drug2 <- drug_name$drug_name[drug_name$id == drug2_id]
+
+  if (grepl("UWB", file)){
+    cell1 <- "UWB1.289"
+    cell2 <- "UWB1.289+BRCA1"
+    conc2 <- switch(drug2_id,
+      "23" = 0.5,
+      "24" = 0.25,
+      "30" = 0.5
+    )
+  } else if (grepl("COV", file)){
+    cell1 <- "COV362"
+    cell2 <- "COV362+BRCA1"
+    conc2 <- switch(drug2_id,
+      "23" = 1,
+      "24" = 0.5,
+      "30" = 1
+    )
+  }
+
+  conc_unit1 <- "ratio"
+  conc_unit2 <- "uM"
+  
+  # The last row is the background signal. We will remove the background signal from whole plates.
+  background <- mean(table$`12`)
+  table <- table[,1:10] - background
+  
+  # Negative control
+  NC1 <- mean(table[1:3, 5])
+  NC2 <- mean(table[1:3, 6])
+  
+  # Calculate % inhibition
+  table[, 1:5] <- 100 * (1 - table[, 1:5]/NC1)
+  table[, 6:10] <- 100 * (1 - table[, 6:10]/NC2)
+  
+  colnames(table) <- c(6, 4, 2, 1, 0, 0, 1, 2, 4, 6)
+  df1 <- table[1:3, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell1,
+      conc2 = 0,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df2 <- table[4:6, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell1,
+      conc2 = conc2,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df3 <- table[1:3, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 2,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell2,
+      conc2 = 0,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df4 <- table[4:6, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 2,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell2,
+      conc2 = conc2,
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  if (i == 10){
+    df3 <- filter(df3, conc1 != 6)
+    df4 <- filter(df4, conc1 != 6)
+  }
+  df <- Reduce(rbind.data.frame, list(df1, df2, df3, df4))
+  df$conc1 <- as.numeric(df$conc1)
+  write.csv(df, paste0(output_dir, gsub("xlsx", "csv", file)), row.names = FALSE)
+}
+```
+
+# Combination with NK, plate 11 to 13
+
+```{r}
+for (i in 11:13){
+  file <- files[startsWith(files, paste0(i, "-"))]
+  table <- read.xlsx(
+    paste0(
+    "./data/input/drug_combination_raw_experiment_data/2022-11-09/", file
+    ),
+    rows = 15:22, cols = 3:13
+  )
+  drug1 <- "Olaparib"
+  drug2_id = strsplit(file, "-")[[1]][3]
+  drug2 <- drug_name$drug_name[drug_name$id == drug2_id]
+  cell <- "KURAMOCHI"
+  conc2 <- switch(drug2_id,
+      "27" = c(0, 10, 20, 40),
+      "28" = c(0, 2, 4, 8),
+      "29" = c(0, 0.5, 1, 2)
+    )
+  conc_unit2 <- switch(drug2_id,
+      "27" = "nM",
+      "28" = "nM",
+      "29" = "uM"
+    )
+  conc_unit1 <- "uM"
+  # The last row is the background signal. We will remove the background signal from whole plates.
+  background <- mean(table$`12`)
+  table <- table[,1:10] - background
+  
+  # Negative control
+  NC1 <- mean(table[1:3, 5])
+  NC2 <- mean(table[1:3, 6])
+  
+  # Calculate % inhibition
+  table[, 1:5] <- 100 * (1 - table[, 1:5]/NC1)
+  table[, 6:10] <- 100 * (1 - table[, 6:10]/NC1)
+  
+  colnames(table) <- c(10, 7, 4, 2, 0, 0, 2, 4, 7, 10)
+  df1 <- table[1:3, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[1],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df2 <- table[4:6, 1:5] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[2],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df3 <- table[1:3, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[3],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  df4 <- table[4:6, 6:10] %>% 
+    as.data.frame() %>% 
+    pivot_longer(everything(), names_to = "conc1", values_to = "response") %>% 
+    mutate(
+      block_id = 1,
+      drug1 = drug1,
+      drug2 = drug2,
+      cell_line_name = cell,
+      conc2 = conc2[4],
+      conc_unit1 = conc_unit1,
+      conc_unit2 = conc_unit2
+     )
+  
+  df <- Reduce(rbind.data.frame, list(df1, df2, df3, df4))
+  df$conc1 <- as.numeric(df$conc1)
+  write.csv(df, paste0(output_dir, gsub("xlsx", "csv", file)), row.names = FALSE)
+}
+```
+
+# Merge all templates
+
+```{r}
+files <- list.files("./data/input/drug_combination_raw_experiment_data/processed_response_table/", full.names = TRUE)
+
+block_id_acc <- 0
+df <- NULL
+for (f in files){
+  print(block_id_acc)
+  tmp <- read.csv(f)
+  tmp$block_id <- tmp$block_id + block_id_acc
+  df <- rbind.data.frame(df, tmp)
+  block_id_acc <- max(df$block_id)
+}
+```
+
+```{r}
+write.csv(df, "./data/input/drug_combination_raw_experiment_data/merged_template_2022_11_9.csv", row.names = FALSE)
+```
+

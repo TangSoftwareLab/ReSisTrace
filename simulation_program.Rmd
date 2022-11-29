@@ -71,12 +71,14 @@ for (t in treatments){
   tmp_bt <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_1/bt_lineage_label_table_no_qc.csv")))
   tmp_at <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_1/at_lineage_label_table_no_qc.csv")))
   tmp <- data.frame(
+    sample = paste0(t, "_1"),
     treatment = t,
     time_point = "AfterTreatment_no_qc",
     n_cell = tmp_at
   )
   cell_counts <- rbind.data.frame(cell_counts, tmp)
   tmp <- data.frame(
+    sample = paste0(t, "_1"),
     treatment = t,
     time_point = "BeforeTreatment_no_qc",
     n_cell = tmp_bt
@@ -86,12 +88,14 @@ for (t in treatments){
   tmp_bt <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_2/bt_lineage_label_table_no_qc.csv")))
   tmp_at <- nrow(read.csv(paste0("./data/input/preprocess/", ifelse(t == "Carbo", "Carboplatin", t), "_2/at_lineage_label_table_no_qc.csv")))
   tmp <- data.frame(
+    sample = paste0(t, "_2"),
     treatment = t,
     time_point = "AfterTreatment_no_qc",
     n_cell = tmp_at
   )
   cell_counts <- rbind.data.frame(cell_counts, tmp)
   tmp <- data.frame(
+    sample = paste0(t, "_2"),
     treatment = t,
     time_point = "BeforeTreatment_no_qc",
     n_cell = tmp_bt
@@ -99,9 +103,9 @@ for (t in treatments){
   cell_counts <- rbind.data.frame(cell_counts, tmp)
 }
 
-cell_counts <- cell_counts %>%
-  group_by(treatment, time_point) %>% 
-  summarise(n_cell = mean(n_cell))
+# cell_counts <- cell_counts %>%
+#   group_by(treatment, time_point) %>% 
+#   summarise(n_cell = mean(n_cell))
 
 write.csv(cell_counts, paste0(output_dir, "cell_counts_for_each_treatment_samples.csv"), row.names = FALSE)
 ```
@@ -512,15 +516,17 @@ KillRateTotal <- seq(0.7, 0.8, by = 0.01)
 ```{r include=FALSE}
 treatments <- unique(cell_counts$treatment)
 treatments <- treatments[treatments != "ctrl"]
+samples <- unique(cell_counts$sample)
 res <- NULL
 for (i in 1:length(KillRateTotal)) {
-  for (t in treatments) {
+  for (s in samples) {
+    t <- gsub("\\_\\d", "", s)
     tmp <- ReSisTraceSimulation(
       Niter = Niter,
       SampleSize = SampleSize,
       LineagePropAfterDoubling = LineagePropAfterDoubling,
-      NCellBT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "BeforeTreatment_no_qc"]),
-      NCellAT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "AfterTreatment_no_qc"]),
+      NCellBT = round(cell_counts$n_cell[cell_counts$sample == s & cell_counts$time_point == "BeforeTreatment_no_qc"]),
+      NCellAT = round(cell_counts$n_cell[cell_counts$sample == s & cell_counts$time_point == "AfterTreatment_no_qc"]),
       KillRateTotal = KillRateTotal[i],
       NCellPreSeq = round(cellSeq_numers$NCellPreSeq[cellSeq_numers$treatment == t]),
       NCellSeq = round(cellSeq_numers$NCellSeq[cellSeq_numers$treatment == t]),
@@ -533,6 +539,7 @@ for (i in 1:length(KillRateTotal)) {
     sd <- as.data.frame(t(sd))
     colnames(sd) <- paste0(colnames(sd), "_sd")
     df <- data.frame(
+      sample = s, 
       treatment = t,
       KillRateTotal = KillRateTotal[i]
     )
@@ -817,119 +824,149 @@ plot_table$KillRateTotal <- plot_table$KillRateTotal * 100
 ```{r}
 metrics <- c("NPV", "FOR")
 for (m in metrics) {
-  tmp <- plot_table
-  tmp[, startsWith(colnames(tmp), m)] <- tmp[, startsWith(colnames(tmp), m)] * 100
+  tmp <- plot_table %>% 
+    select(KillRateTotal, treatment, mean = paste0(m, "_mean"), sd = paste0(m, "_sd"))
+  tmp$mean <- tmp$mean * 100
+  tmp$sd <- tmp$sd * 100
   p<- ggplot(
       tmp,
-      aes_string(
-        x="KillRateTotal",
-        y=paste0(m, "_mean"),
-        group="treatment",
-        color="treatment"
+      aes(
+        x = KillRateTotal,
+        y = mean,
+        group = treatment,
+        color = treatment
       )
     ) + 
     geom_line() +
-    geom_point() +
-    theme_bw() + 
+    # geom_point() +
+    geom_errorbar(
+      aes(ymin = mean - sd, ymax = mean + sd), width=.3,
+      position=position_dodge(0.05)
+    ) +
+    theme_classic() + 
     theme(
-      text = element_text(size = 20),
-      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
-      axis.text = element_text(size = 20, color = "black"),
-      legend.text = element_text(size = 20, color = "black")
+      text = element_text(size = 21),
+      axis.title = element_text(size = 21, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 21, color = "black"),
+      legend.text = element_text(size = 21, color = "black")
     ) +
     scale_color_manual(values = c(blue, red, brown, "#000000")) +
     ylim(c(0, 100)) +
     labs(
-      title = "Lineage count",
-      x = "Killing rate",
-      y = "Negative predictive value",
+      x = "Killing rate (%)",
+      y = ifelse(m == "NPV", "Pre-sensitive predictive rate (%)", m),
       color = ""
     )
-  ggsave(paste0(output_dir, m, "_lineage_count.png"), p, width = 6, height = 4)
+  # ggsave(paste0(output_dir, m, "_lineage_count.pdf"), p, width = 6, height = 3)
+  ggsave(paste0(output_dir, m, "_lineage_count.pdf"), p, width = 7, height = 4)
   
+  tmp <- plot_table %>% 
+    select(KillRateTotal, treatment, mean = paste0(m, "Cell_mean"), sd = paste0(m, "Cell_sd"))
+  tmp$mean <- tmp$mean * 100
+  tmp$sd <- tmp$sd * 100
   p<- ggplot(
       tmp,
-      aes_string(
-        x="KillRateTotal",
-        y=paste0(m, "Cell_mean"),
-        group="treatment",
-        color="treatment"
+      aes(
+        x = KillRateTotal,
+        y = mean,
+        group = treatment,
+        color = treatment
       )
     ) + 
     geom_line() +
-    geom_point() +
-    theme_bw() + 
+    # geom_point() +
+    geom_errorbar(
+      aes(ymin = mean - sd, ymax = mean + sd), width=.3,
+      position=position_dodge(0.05)
+    ) +
+    theme_classic() + 
     theme(
-      text = element_text(size = 20),
-      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
-      axis.text = element_text(size = 20, color = "black"),
-      legend.text = element_text(size = 20, color = "black")
+      text = element_text(size = 21),
+      axis.title = element_text(size = 21, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 21, color = "black"),
+      legend.text = element_text(size = 21, color = "black")
     ) +
     scale_color_manual(values = c(blue, red, brown, "#000000")) +
     ylim(c(0, 100)) +
     labs(
-      title = "Cell count",
-      x = "Killing rate",
-      y = "Negative predictive value",
+      x = "Killing rate (%)",
+      y = ifelse(m == "NPV", "Pre-sensitive predictive rate (%)", m),
       color = ""
     )
-  ggsave(paste0(output_dir, m, "_cell_count.png"), p, width = 6, height = 4)
+  # ggsave(paste0(output_dir, m, "_cell_count.pdf"), p, width = 6, height = 3)
+  ggsave(paste0(output_dir, m, "_cell_count.pdf"), p, width = 7, height = 4)
   
+  tmp <- plot_table %>% 
+    select(KillRateTotal, treatment, mean = paste0(m, "Singleton_mean"), sd = paste0(m, "Singleton_sd"))
+  tmp$mean <- tmp$mean * 100
+  tmp$sd <- tmp$sd * 100
   p<- ggplot(
       tmp,
-      aes_string(
-        x="KillRateTotal",
-        y=paste0(m, "Singleton_mean"),
-        group="treatment",
-        color="treatment"
+      aes(
+        x = KillRateTotal,
+        y = mean,
+        group = treatment,
+        color = treatment
       )
     ) + 
     geom_line() +
-    geom_point() +
-    theme_bw() + 
+    # geom_point() +
+    geom_errorbar(
+      aes(ymin = mean - sd, ymax = mean + sd), width=.3,
+      position=position_dodge(0.05)
+    ) +
+    theme_classic() + 
     theme(
-      text = element_text(size = 20),
-      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
-      axis.text = element_text(size = 20, color = "black"),
-      legend.text = element_text(size = 20, color = "black")
+      text = element_text(size = 21),
+      axis.title = element_text(size = 21, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 21, color = "black"),
+      legend.text = element_text(size = 21, color = "black")
     ) +
     scale_color_manual(values = c(blue, red, brown, "#000000")) +
     ylim(c(0, 100)) +
     labs(
-      title = "Lineage count (only singletons)",
-      x = "Killing rate",
-      y = "Negative predictive value",
+      x = "Killing rate (%)",
+      y = ifelse(m == "NPV", "Pre-sensitive predictive rate (%)", m),
       color = ""
     )
-  ggsave(paste0(output_dir, m, "_lineage_count_singleton.png"), p, width = 6, height = 4)
+  # ggsave(paste0(output_dir, m, "_lineage_count_singleton.pdf"), p, width = 6, height = 3)
+  ggsave(paste0(output_dir, m, "_lineage_count_singleton.pdf"), p, width = 7, height = 4)
   
+  tmp <- plot_table %>% 
+    select(KillRateTotal, treatment, mean = paste0(m, "CellSingleton_mean"), sd = paste0(m, "CellSingleton_sd"))
+  tmp$mean <- tmp$mean * 100
+  tmp$sd <- tmp$sd * 100
   p<- ggplot(
       tmp,
-      aes_string(
-        x="KillRateTotal",
-        y=paste0(m, "CellSingleton_mean"),
-        group="treatment",
-        color="treatment"
+      aes(
+        x = KillRateTotal,
+        y = mean,
+        group = treatment,
+        color = treatment
       )
     ) + 
     geom_line() +
-    geom_point() +
-    theme_bw() + 
+    # geom_point() +
+    geom_errorbar(
+      aes(ymin = mean - sd, ymax = mean + sd), width=.3,
+      position=position_dodge(0.05)
+    ) +
+    theme_classic() + 
     theme(
-      text = element_text(size = 20),
-      axis.title = element_text(size = 20, color = "black", hjust = 0.5),
-      axis.text = element_text(size = 20, color = "black"),
-      legend.text = element_text(size = 20, color = "black")
+      text = element_text(size = 21),
+      axis.title = element_text(size = 21, color = "black", hjust = 0.5),
+      axis.text = element_text(size = 21, color = "black"),
+      legend.text = element_text(size = 21, color = "black")
     ) +
     scale_color_manual(values = c(blue, red, brown, "#000000")) +
     ylim(c(0, 100)) +
     labs(
-      title = "Cell count (only singleton)",
       x = "Killing rate",
-      y = "Negative predictive value",
+      y = ifelse(m == "NPV", "Pre-sensitive predictive rate (%)", m),
       color = ""
     )
-  ggsave(paste0(output_dir, m, "_cell_count_singleton.png"), p, width = 6, height = 4)
+  # ggsave(paste0(output_dir, m, "_cell_count_singleton.pdf"), p, width = 6, height = 3)
+  ggsave(paste0(output_dir, m, "_cell_count_singleton.pdf"), p, width = 7, height = 4)
 }
 ```
 ```{r}
@@ -952,28 +989,6 @@ p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVCell_mean * 100, group=treatmen
     color = "")
 p
 ```
-
-```{r}
-p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVSingleton_mean * 100, group=treatment, color=treatment)) + 
-  geom_line() +
-  geom_point() +
-  theme_bw() + 
-  theme(
-    text = element_text(size = 20),
-    axis.title = element_text(size = 20, color = "black"),
-    axis.text = element_text(size = 20, color = "black"),
-    legend.text = element_text(size = 20, color = "black")
-  ) +
-  scale_color_manual(values = c(blue, red, brown, "#000000")) +
-  ylim(c(0, 100)) +
-  labs(
-    title = "Lineage count (only singletons)",
-    x = "Killing rate",
-    y = "Negative predictive value",
-    color = "")
-p
-```
-
 
 ```{r}
 p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVSingleton_mean * 100, group=treatment, color=treatment)) + 
