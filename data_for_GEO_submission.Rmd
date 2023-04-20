@@ -1,0 +1,93 @@
+---
+title: "Preparing scRNA-seq data for public repositories (e.g. GEO)"
+author: "Shuyu Zheng"
+date: "2022-12-02"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(data.table)
+```
+
+```{r}
+output_dir <- "./data/output/data_for_GEO/"
+if (!dir.exists(output_dir)){
+  dir.create(output_dir)
+}
+```
+
+# Merged scRNA-seq data
+
+```{r}
+data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+```
+
+```{r}
+
+data_to_write_out <- as.data.frame(as.matrix(data@assays$RNA@counts))
+fwrite(
+  x = data_to_write_out, file = paste0(output_dir, "ReSisTrace_UMIcounts.tsv"),
+  sep='\t',
+  row.names = TRUE, col.names = TRUE)
+```
+
+```{r}
+data_to_write_out <- as.data.frame(as.matrix(data@meta.data))
+fwrite(
+  x = data_to_write_out,
+  file = paste0(output_dir, "ReSisTrace_cell_info.tsv"), sep='\t',
+  row.names = TRUE, col.names = TRUE)
+```
+
+# Separated data sets
+
+```{r}
+sub_output_dir <- paste0(output_dir, "separated_by_samples/")
+if (!dir.exists(sub_output_dir)) {
+  dir.create(sub_output_dir)
+}
+```
+
+```{r}
+samples <- c(
+  "Carboplatin_1", "Carboplatin_2", "NK_1", "NK_2", "Olaparib_1",
+  "Olaparib_2", "Control_1", "Control_2"
+  )
+for (s in samples){
+  # Pre-treatment
+  if (startsWith(s, "Olaparib")){
+    data <- readRDS(paste0("./data/input/preprocess/",s , "/bt_sample_ready_", s, ".RDS"))
+  } else {
+    data <- readRDS(paste0("./data/input/preprocess/",s , "/bt_sample_ready.RDS"))
+  }
+  
+  data_to_write_out <- as.data.frame(as.matrix(data@assays$RNA@counts))
+  fwrite(
+    x = data_to_write_out, file = paste0(sub_output_dir, "ReSisTrace_", s, "_pre_treatment_UMIcounts.tsv"),
+    sep='\t',
+    row.names = TRUE, col.names = TRUE)
+  
+  data_to_write_out <- as.data.frame(as.matrix(data@meta.data))
+  fwrite(
+    x = data_to_write_out,
+    file = paste0(sub_output_dir, "ReSisTrace_", s, "_pre_treatment_cell_info.tsv"), sep='\t',
+    row.names = TRUE, col.names = TRUE)
+  
+  # Post-treatment
+  data <- readRDS(paste0("./data/input/preprocess/",s , "/at_sample_ready.RDS"))
+
+  data_to_write_out <- as.data.frame(as.matrix(data@assays$RNA@counts))
+  fwrite(
+    x = data_to_write_out, file = paste0(sub_output_dir, "ReSisTrace_", s, "_post_treatment_UMIcounts.tsv"),
+    sep='\t',
+    row.names = TRUE, col.names = TRUE)
+  
+  data_to_write_out <- as.data.frame(as.matrix(data@meta.data))
+  fwrite(
+    x = data_to_write_out,
+    file = paste0(sub_output_dir, "ReSisTrace_", s, "_post_treatment_cell_info.tsv"), sep='\t',
+    row.names = TRUE, col.names = TRUE)
+}
+```

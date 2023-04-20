@@ -732,6 +732,123 @@ ggsave(paste0(sub_output_dir, "Figure1E_non_conserved_KEGG_volcano.pdf"), p,
 
 # Figure S1: Cell doubling, lineage labelling efficiency, and quality assessment of ReSisTrace
 
+## Number of unique barcode per sample
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "FigureS1/")
+if (!dir.exists(sub_output_dir)) {
+  dir.create(sub_output_dir)
+}
+```
+
+Prepare data table
+
+```{r}
+samples <- c("Control_1", "Control_2", "Carboplatin_1", "Carboplatin_2", "Olaparib_1", "Olaparib_2", "NK_1", "NK_2")
+
+label_sequences <- vector(mode = "list", length = length(samples))
+names(label_sequences) <- samples
+
+for (s in samples){
+  load(paste0("./data/input/preprocess/", s, "/lineage_label_tables.RData"))
+  label_id_bt <- sapply(l_b_fre_merge_filtered[["lineage_id"]], function(x)(strsplit(x, ":")))
+  label_id_bt <- unique(purrr::reduce(label_id_bt, `c`))
+  label_index <- label_index %>% 
+    filter(seq_id %in% label_id_bt)
+  label_index$sample <- s
+  label_index$total <- nrow(label_index)
+  label_sequences[[s]] <- label_index
+}
+
+label_sharing <- bind_rows(label_sequences)
+frequency <- as.data.frame(table(label_sharing$seq))
+names(frequency) <- c("seq", "freq")
+label_sharing <- left_join(label_sharing, frequency, by = "seq")
+max(label_sharing$freq)
+table(label_sharing$freq)
+table(label_sharing$freq)/nrow(label_sharing) * 100
+```
+
+```{r}
+# proportion of different frequency in each sample
+plot_table <- label_sharing %>% 
+  group_by(sample, freq) %>% 
+  summarise(
+    n = n(),
+    total = mean(total),
+    .groups = "keep") %>% 
+  mutate(
+    proportion = n/total * 100
+  )
+plot_table$freq <- factor(plot_table$freq, levels = seq(6, 1))
+plot_table$sample <- gsub("_", " ", plot_table$sample)
+write.csv(plot_table, paste0(sub_output_dir, "unique_label_per_bt_sample.csv"), row.names = FALSE)
+
+colors = c("#3C5488","#5A6E9A","#7888AC","#95A3BF","#B3BDD1","#D1D7E3")
+
+p <- ggplot(plot_table, aes(x = sample, y = proportion, fill = freq)) +
+  geom_bar(position = "stack", stat = "identity") +
+  labs(
+    y = "Proportion of lineage labels (%)",
+    fill = "Number of samples"
+  ) + 
+  ylim(c(0, 100)) +
+  scale_fill_manual(values = colors) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 20),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 20,
+      color = "black"
+    ),
+    axis.text.y = element_text(
+      size = 20,
+      color = "black"
+    ),
+    axis.title.x = element_blank(),
+    legend.text = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    panel.grid = element_blank()
+  )
+ggsave(paste0(sub_output_dir, "unique_label_per_bt_sample.pdf"), width = 6, height = 5)
+```
+
+## Percentage of cells have barcodes
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "FigureS1/")
+if (!dir.exists(sub_output_dir)) {
+  dir.create(sub_output_dir)
+}
+```
+
+Prepare data table
+
+```{r}
+samples <- c("Control_1", "Control_2", "Carboplatin_1", "Carboplatin_2", "Olaparib_1", "Olaparib_2", "NK_1", "NK_2")
+
+label_sequences <- vector(mode = "list", length = length(samples))
+names(label_sequences) <- samples
+
+for (s in samples){
+  load(paste0("./data/input/preprocess/", s, "/lineage_label_tables.RData"))
+  label_index$sample <- s
+  label_index$total <- nrow(label_index)
+  label_sequences[[s]] <- label_index
+}
+
+label_sharing <- bind_rows(label_sequences)
+frequency <- as.data.frame(table(label_sharing$seq))
+names(frequency) <- c("seq", "freq")
+label_sharing <- left_join(label_sharing, frequency, by = "seq")
+max(label_sharing$freq)
+table(label_sharing$freq)
+```
+
 ## B1: Number of divisions after 1x doubling
 
 The data table comes from Jun. He manually counted the number of cells which divided zero, once, twice or more times after "1 x doubling time". Totally 6 views are counted.
@@ -847,7 +964,7 @@ for (s in samples){
 colnames(plot_table) <- c("Size_of_lineage", "Frequency", "Sample", "labelAT", "labelBT", "labelBTAT")
 write.csv(
   plot_table,
-  paste0(sub_output_dir, "FigureS1B2_frequence_of_lineage_lable.csv"),
+  paste0(sub_output_dir, "FigureS1B2_frequence_of_lineage_label.csv"),
   row.names = FALSE
 )
 ```
@@ -889,7 +1006,7 @@ p <- ggplot(plot_table, aes(x = Size_of_lineage, y = mean, fill = Size_of_lineag
     axis.text = element_text(size = 20, color = "black")
   )
 ggsave(
-  paste0(sub_output_dir, "FigureS1B2_frequence_of_lineage_lable.pdf"),
+  paste0(sub_output_dir, "FigureS1B2_frequence_of_lineage_label.pdf"),
   width = 5, height = 5
 )
 ```
@@ -1656,7 +1773,7 @@ for (t in treatment){
   )
   tmp[[paste0(t, "_log2FC_preR_preS_adj")]] <- tmp$mean_log2FC_treat - tmp$mean_log2FC_ctrl
   tmp[[paste0(t, "_boot_p")]] <- tmp[[paste0("boot_", t, "_ctrl_p_value")]]
-  tmp[[paste0(t, "_perm_p")]] <- tmp[[paste0("perm_", t, "_ctrl_p_value")]]
+  tmp[[paste0(t, "_perm_p")]] <- tmp[[paste0(t, "_perm_p")]]
   tmp <- tmp[, c("ensembl", "symbol", paste0(t, "_log2FC_preR_preS_adj"), paste0(t, "_boot_p"), paste0(t, "_perm_p"))]
   if (is.null(deg)){
     deg <- tmp
@@ -2910,25 +3027,25 @@ conserve <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserv
 ```
 
 ```{r}
-treatment <- c("Carbo", "Olaparib", "NK")
-for (t in treatment){
-  tmp <- read.csv(
-  paste0(
-    "./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_",
-    t,
-    "_control_bootstrap_permutation_summary.csv")
-  )
-  tmp[[paste0(t, "_log2FC_preR_preS_adj")]] <- tmp$mean_log2FC_treat - tmp$mean_log2FC_ctrl
-  tmp <- tmp[, c("ensembl", "symbol", # paste0(t, "_log2FC_preR_preS_adj"),
-                paste0("boot_", t, "_ctrl_p_value"),
-                paste0("perm_", t, "_ctrl_p_value"))]
-  if (is.null(log2FC_table)){
-    log2FC_table <- tmp
-  } else {
-    log2FC_table <- left_join(log2FC_table, tmp, by = c("ensembl", "symbol"))
-  }
-}
-# log2FC_table <- left_join(log2FC_table, conserve, by = "ensembl")
+# treatment <- c("Carbo", "Olaparib", "NK")
+# for (t in treatment){
+#   tmp <- read.csv(
+#   paste0(
+#     "./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_",
+#     t,
+#     "_control_bootstrap_permutation_summary.csv")
+#   )
+#   tmp[[paste0(t, "_log2FC_preR_preS_adj")]] <- tmp$mean_log2FC_treat - tmp$mean_log2FC_ctrl
+#   tmp <- tmp[, c("ensembl", "symbol", # paste0(t, "_log2FC_preR_preS_adj"),
+#                 paste0("boot_", t, "_ctrl_p_value"),
+#                 paste0(t, "_perm_p"))]
+#   if (is.null(log2FC_table)){
+#     log2FC_table <- tmp
+#   } else {
+#     log2FC_table <- left_join(log2FC_table, tmp, by = c("ensembl", "symbol"))
+#   }
+# }
+# # log2FC_table <- left_join(log2FC_table, conserve, by = "ensembl")
 ```
 
 At vs BT logFC adjust growth control
@@ -3176,7 +3293,7 @@ colnames(res) <- c(
 for(i in 1:length(p_threshold)){
   table_tests <- plot_table %>% 
     dplyr::filter(BRCAness_tcga_p_adj <= p_threshold[i]) %>% 
-    dplyr::select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj"), ends_with("_boot_p")) %>% 
     tibble::column_to_rownames("ensembl") %>% 
     na.omit()
   cat('\r', i)
@@ -3189,7 +3306,7 @@ for(i in 1:length(p_threshold)){
   
   # Olaparib
   tmp <- table_tests %>% 
-    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = boot_Olaparib_ctrl_p_value) %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = Olaparib_boot_p) %>% 
     dplyr::select(value, sig)
   connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
   res[i, "Olaparib_score"] <- connect["score"]
@@ -3197,7 +3314,7 @@ for(i in 1:length(p_threshold)){
   
   # Carboplatin
   tmp <- table_tests %>% 
-    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = boot_Carbo_ctrl_p_value) %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = Carbo_boot_p) %>% 
     dplyr::select(value, sig)
   connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
   res[i, "Carboplatin_score"] <- connect["score"]
@@ -3205,7 +3322,7 @@ for(i in 1:length(p_threshold)){
   
   # NK
   tmp <- table_tests %>% 
-    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = boot_NK_ctrl_p_value) %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = NK_boot_p) %>% 
     dplyr::select(value, sig)
   connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
   res[i, "NK_score"] <- connect["score"]
@@ -3239,7 +3356,7 @@ colnames(res) <- c(
 for(i in 1:length(p_threshold)){
   table_tests <- plot_table %>% 
     dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
-    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj"), ends_with("_ctrl_p_value")) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj"), ends_with("_boot_p")) %>% 
     tibble::column_to_rownames("ensembl") %>% 
     na.omit()
   cat('\r', i)
@@ -3252,7 +3369,7 @@ for(i in 1:length(p_threshold)){
   
   # Olaparib
   tmp <- table_tests %>% 
-    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = boot_Olaparib_ctrl_p_value) %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS_adj, sig = Olaparib_boot_p) %>% 
     dplyr::select(value, sig)
   connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
   res[i, "Olaparib_score"] <- connect["score"]
@@ -3260,7 +3377,7 @@ for(i in 1:length(p_threshold)){
   
   # Carboplatin
   tmp <- table_tests %>% 
-    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = boot_Carbo_ctrl_p_value) %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS_adj, sig = Carbo_boot_p) %>% 
     dplyr::select(value, sig)
   connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
   res[i, "Carboplatin_score"] <- connect["score"]
@@ -3268,7 +3385,7 @@ for(i in 1:length(p_threshold)){
   
   # NK
   tmp <- table_tests %>% 
-    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = boot_NK_ctrl_p_value) %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS_adj, sig = NK_boot_p) %>% 
     dplyr::select(value, sig)
   connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
   res[i, "NK_score"] <- connect["score"]
@@ -4605,6 +4722,11 @@ write.csv(
   paste0(sub_output_dir, "drug_without_anno.csv"),
   row.names = FALSE
 )
+write.csv(
+  drug_anno_match,
+  paste0(sub_output_dir, "drug_matched_anno.csv"),
+  row.names = FALSE
+)
 ```
 
 Table for log2FCs
@@ -4614,20 +4736,20 @@ Table for log2FCs
 log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
 
 # Bootstrap and permutation P values
-p <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_Olaparib_control_bootstrap_permutation_summary.csv") %>% 
-  select(ensembl, symbol, boot_Olaparib_ctrl_p_value, perm_Olaparib_ctrl_p_value) %>% 
-  left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
-      select(ensembl, symbol, boot_Carbo_ctrl_p_value, perm_Carbo_ctrl_p_value),
-    by = c("ensembl", "symbol")
-  ) %>% 
-  left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
-      select(ensembl, symbol, boot_NK_ctrl_p_value, perm_NK_ctrl_p_value),
-    by = c("ensembl", "symbol")
-  )
-log2FC_table <- log2FC_table %>% 
-  left_join(p, by = c("ensembl", "symbol"))
+# p <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_Olaparib_control_bootstrap_permutation_summary.csv") %>% 
+#   select(ensembl, symbol, boot_Olaparib_ctrl_p_value, perm_Olaparib_ctrl_p_value) %>% 
+#   left_join(
+#     read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
+#       select(ensembl, symbol, boot_Carbo_ctrl_p_value, perm_Carbo_ctrl_p_value),
+#     by = c("ensembl", "symbol")
+#   ) %>% 
+#   left_join(
+#     read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
+#       select(ensembl, symbol, boot_NK_ctrl_p_value, perm_NK_ctrl_p_value),
+#     by = c("ensembl", "symbol")
+#   )
+# log2FC_table <- log2FC_table %>% 
+#   left_join(p, by = c("ensembl", "symbol"))
 
 # posT-preT signature
 
@@ -4715,6 +4837,13 @@ preR <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/
 log2FC_table <- log2FC_table %>% 
   left_join(preR, by = c("symbol", "ensembl"))
 
+write.csv(
+  log2FC_table,
+  paste0(sub_output_dir, "Figure4B_all_signatures_logFC_p.csv"),
+  row.names = FALSE)
+```
+
+```{r}
 length(intersect(data$symbol, log2FC_table$symbol))
 ```
 
@@ -4776,7 +4905,7 @@ for (t in treatments) {
     tmp$connectivity_n_log2FC_preR_preS = length(preR_signature)
     
     # filter by bootstrap p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_boot_p")]] < 0.05, ]
     
     drug_signature <- data_tmp[[i]]
     names(drug_signature) <- data_tmp$symbol
@@ -4805,7 +4934,7 @@ for (t in treatments) {
     tmp$connectivity_n_log2FC_preR_preS_adj_boot_p = length(preR_signature)
     
     # filter by permutation p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_perm_p")]] < 0.05, ]
     
     drug_signature <- data_tmp[[i]]
     names(drug_signature) <- data_tmp$symbol
@@ -4830,8 +4959,8 @@ for (t in treatments) {
 
     # filter by permutation p < 0.05 and bootstrap p < 0.05
     data_tmp <- data_merge[
-      data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05 &
-        data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05,
+      data_merge[[paste0(t, "_perm_p")]] < 0.05 &
+        data_merge[[paste0(t, "_boot_p")]] < 0.05,
       ]
     
     drug_signature <- data_tmp[[i]]
@@ -5812,6 +5941,35 @@ table <- CalculateSensitivity(table)
 saveRDS(table, file = paste0(combo_sub_dir, "synergyfinder_object_with_score_third_batch.RDS"))
 ```
 
+### Merged template
+
+```{r}
+selected_blocks <- list(
+  "batch1" = 1:8,
+  "batch2" = c(5, 6, 7, 18, 19),
+  "batch3" = 1)
+template <- NULL
+tmp <- read_xlsx("./data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx") %>% 
+  filter(block_id %in% selected_blocks[[1]]) %>% 
+  mutate(block_id = paste0("1-", block_id)) %>% 
+  mutate(conc_unit1 = conc_unit, conc_unit2 = conc_unit) %>% 
+  select(-conc_unit)
+template <- rbind.data.frame(template, tmp)
+tmp <- read.csv("./data/input/drug_combination_raw_experiment_data/merged_template_2022_11_9.csv") %>% 
+  filter(block_id %in% selected_blocks[[2]]) %>% 
+  mutate(block_id = paste0("2-", block_id))
+template <- rbind.data.frame(template, tmp)
+
+tmp <- read_xlsx("./data/input/drug_combination_raw_experiment_data/KURU-29-olaparibb.xlsx") %>% 
+  filter(block_id %in% selected_blocks[[3]]) %>% 
+  mutate(block_id = paste0("3-", block_id)) %>% 
+  mutate(conc_unit1 = conc_unit, conc_unit2 = conc_unit) %>% 
+  select(-conc_unit)
+template <- rbind.data.frame(template, tmp)
+
+write.csv(template, paste0(combo_sub_dir, "all_selected_combos.csv"))
+```
+
 ### Visualization
 
 ```{r}
@@ -6180,109 +6338,7 @@ Table for log2FCs
 
 ```{r}
 # log2FC for preR-preS-adjusted
-log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
-
-# Bootstrap and permutation P values
-p <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_Olaparib_control_bootstrap_permutation_summary.csv") %>% 
-  select(ensembl, symbol, boot_Olaparib_ctrl_p_value, perm_Olaparib_ctrl_p_value) %>% 
-  left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
-      select(ensembl, symbol, boot_Carbo_ctrl_p_value, perm_Carbo_ctrl_p_value),
-    by = c("ensembl", "symbol")
-  ) %>% 
-  left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
-      select(ensembl, symbol, boot_NK_ctrl_p_value, perm_NK_ctrl_p_value),
-    by = c("ensembl", "symbol")
-  )
-log2FC_table <- log2FC_table %>% 
-  left_join(p, by = c("ensembl", "symbol"))
-
-# posT-preT signature
-
-posT <- read.csv("./data/input/DEG/deg_at_bt_Carbo_control_wilcox.csv") %>% 
-  mutate(
-    Carbo_log2FC_posT_preT = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2,
-    Carbo_log2FC_posT_preT_adj = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
-    Carbo_posT_preT_p = (Carbo_1_p_val + Carbo_2_p_val) / 2,
-    Carbo_posT_preT_p_adj = (Carbo_1_p_val_adj + Carbo_2_p_val_adj) / 2
-  ) %>% 
-  select(
-    symbol, ensembl, Carbo_log2FC_posT_preT, Carbo_log2FC_posT_preT_adj,
-    Carbo_posT_preT_p, Carbo_posT_preT_p_adj
-  ) %>% 
-  left_join(
-    read.csv("./data/input/DEG/deg_at_bt_Olaparib_control_wilcox.csv") %>% 
-    mutate(
-      Olaparib_log2FC_posT_preT = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2,
-      Olaparib_log2FC_posT_preT_adj = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
-      Olaparib_posT_preT_p = (Olaparib_1_p_val + Olaparib_2_p_val) / 2,
-      Olaparib_posT_preT_p_adj = (Olaparib_1_p_val_adj + Olaparib_2_p_val_adj) / 2
-    ) %>% 
-    select(
-      symbol, ensembl, Olaparib_log2FC_posT_preT, Olaparib_log2FC_posT_preT_adj,
-      Olaparib_posT_preT_p, Olaparib_posT_preT_p_adj
-    ),
-    by = c("symbol", "ensembl")
-  ) %>% 
-  left_join(
-    read.csv("./data/input/DEG/deg_at_bt_NK_control_wilcox.csv") %>% 
-    mutate(
-      NK_log2FC_posT_preT = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2,
-      NK_log2FC_posT_preT_adj = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
-      NK_posT_preT_p = (NK_1_p_val + NK_2_p_val) / 2,
-      NK_posT_preT_p_adj = (NK_1_p_val_adj + NK_2_p_val_adj) / 2
-    ) %>% 
-    select(
-      symbol, ensembl, NK_log2FC_posT_preT, NK_log2FC_posT_preT_adj,
-      NK_posT_preT_p, NK_posT_preT_p_adj
-    ),
-    by = c("symbol", "ensembl")
-  )
-
-log2FC_table <- log2FC_table %>% 
-  left_join(posT, by = c("symbol", "ensembl"))
-
-# preR-preS signature without adjusting growth control
-
-preR <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
-  mutate(
-    Carbo_log2FC_preR_preS = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2,
-    Carbo_preR_preS_p = (Carbo_1_p_val + Carbo_2_p_val) / 2,
-    Carbo_preR_preS_p_adj = (Carbo_1_p_val_adj + Carbo_2_p_val_adj) / 2
-  ) %>% 
-  select(
-    symbol, ensembl, Carbo_log2FC_preR_preS, Carbo_preR_preS_p,
-    Carbo_preR_preS_p_adj
-  ) %>% 
-  left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Olaparib_control_bootstrap_permutation.csv") %>% 
-    mutate(
-      Olaparib_log2FC_preR_preS = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2,
-      Olaparib_preR_preS_p = (Olaparib_1_p_val + Olaparib_2_p_val) / 2,
-      Olaparib_preR_preS_p_adj = (Olaparib_1_p_val_adj + Olaparib_2_p_val_adj) / 2
-    ) %>% 
-    select(
-      symbol, ensembl, Olaparib_log2FC_preR_preS, Olaparib_preR_preS_p,
-      Olaparib_preR_preS_p_adj
-    ),
-    by = c("symbol", "ensembl")
-  ) %>% 
-  left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
-    mutate(
-      NK_log2FC_preR_preS = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2,
-      NK_preR_preS_p = (NK_1_p_val + NK_2_p_val) / 2,
-      NK_preR_preS_p_adj = (NK_1_p_val_adj + NK_2_p_val_adj) / 2
-    ) %>% 
-    select(
-      symbol, ensembl, NK_log2FC_preR_preS, NK_preR_preS_p, NK_preR_preS_p_adj
-    ),
-    by = c("symbol", "ensembl")
-  )
-
-log2FC_table <- log2FC_table %>% 
-  left_join(preR, by = c("symbol", "ensembl"))
+log2FC_table <- read.csv("./data/output/Figure4/Figure4B_all_signatures_logFC_p.csv")
 
 length(intersect(data$symbol, log2FC_table$symbol))
 ```
@@ -6322,7 +6378,7 @@ for (t in treatments) {
     tmp$pearson_n_log2FC_preR_preS = cor$parameter + 2
     
     # filter by bootstrap p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_boot_p")]] < 0.05, ]
     # preR-preS adjusted growth control
     cor <- cor.test(
       data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
@@ -6343,7 +6399,7 @@ for (t in treatments) {
     tmp$pearson_n_log2FC_preR_preS_boot_p = cor$parameter + 2
     
     # filter by permutation p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_perm_p")]] < 0.05, ]
     # preR-preS adjusted growth control
     cor <- cor.test(
       data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
@@ -6482,7 +6538,7 @@ for (t in treatments) {
     tmp$pearson_n_log2FC_preR_preS = cor$parameter + 2
     
     # filter by bootstrap p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_boot_p")]] < 0.05, ]
     # preR-preS adjusted growth control
     cor <- cor.test(
       data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
@@ -6494,7 +6550,7 @@ for (t in treatments) {
     tmp$pearson_n_log2FC_preR_preS_adj_boot_p = cor$parameter + 2
     
     # filter by permutation p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_perm_p")]] < 0.05, ]
     # preR-preS adjusted growth control
     cor <- cor.test(
       data_tmp[[i]], data_tmp[[paste0(t, "_log2FC_preR_preS_adj")]],
@@ -6507,8 +6563,8 @@ for (t in treatments) {
 
     # filter by permutation p < 0.05 and bootstrap p < 0.05
     data_tmp <- data_merge[
-      data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05 &
-        data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05,
+      data_merge[[paste0(t, "_perm_p")]] < 0.05 &
+        data_merge[[paste0(t, "_boot_p")]] < 0.05,
       ]
     # preR-preS adjusted growth control
     cor <- cor.test(
@@ -6660,7 +6716,7 @@ for (t in treatments) {
     tmp$connectivity_n_log2FC_preR_preS = length(preR_signature)
     
     # filter by bootstrap p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_boot_p")]] < 0.05, ]
     
     drug_signature <- data_tmp[[i]]
     names(drug_signature) <- data_tmp$symbol
@@ -6689,7 +6745,7 @@ for (t in treatments) {
     tmp$connectivity_n_log2FC_preR_preS_adj_boot_p = length(preR_signature)
     
     # filter by permutation p < 0.05
-    data_tmp <- data_merge[data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05, ]
+    data_tmp <- data_merge[data_merge[[paste0(t, "_perm_p")]] < 0.05, ]
     
     drug_signature <- data_tmp[[i]]
     names(drug_signature) <- data_tmp$symbol
@@ -6714,8 +6770,8 @@ for (t in treatments) {
 
     # filter by permutation p < 0.05 and bootstrap p < 0.05
     data_tmp <- data_merge[
-      data_merge[[paste0("perm_", t, "_ctrl_p_value")]] < 0.05 &
-        data_merge[[paste0("boot_", t, "_ctrl_p_value")]] < 0.05,
+      data_merge[[paste0(t, "_perm_p")]] < 0.05 &
+        data_merge[[paste0(t, "_boot_p", t, "_ctrl_p_value")]] < 0.05,
       ]
     
     drug_signature <- data_tmp[[i]]
@@ -6890,6 +6946,7 @@ for (t in treatments) {
     row.names = FALSE)
 }
 ```
+
 ## Connectivity score (GSEA) for drug-induced signature and BRCAness signature
 
 ```{r}
@@ -8065,6 +8122,381 @@ L1000 <- data.table::fread("./data/input/L1000_treatment_information/phase_one/G
 L1000[L1000 == -666] <- NA
 writexl::write_xlsx(L1000, paste0(sub_output_dir, "L1000_treatment_condition.xlsx"))
 ```
+
+## Survival plot for PreR-preS signature
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "test/survival_plot_on_preR_preS/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+
+deg <- read.csv("./data/output/Figure4/Figure4B_all_signatures_logFC_p.csv")
+data_clinical_patient = read.delim("./data/input/BRCAness/data_clinical_patient.txt", skip = 4)
+data_clinical_sample = read.delim("./data/input/BRCAness/data_clinical_sample.txt", skip = 4)
+sister_conserve_gene <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
+  filter(conserve_gene == TRUE) %>% 
+  select(ensembl)
+sister_conserve_gene <- sister_conserve_gene$ensembl
+```
+
+
+```{r}
+deconvolute <- TRUE
+
+if (deconvolute){
+  # deconvoluted data
+  data_mrna = readRDS("./data/input/BRCAness/EOC_deconv_TCGA_expr_mat.rds")
+  colnames(data_mrna) = gsub("\\.","\\-", colnames(data_mrna))
+  colnames(data_mrna) = substr(colnames(data_mrna), 1, 15)
+} else {
+  # Non-deconvoluted data
+  data_mrna <- read.delim("./data/input/BRCAness/data_mrna_seq_v2_rsem.txt", check.names = F) %>% 
+    select(-Entrez_Gene_Id) %>% 
+    filter(Hugo_Symbol != "") %>% 
+    dplyr::rename(symbol = Hugo_Symbol) %>% 
+    group_by(symbol) %>% 
+    summarise_all("mean") %>% 
+    column_to_rownames("symbol")
+}
+
+data_mrna <- data_mrna[apply(data_mrna, 1, function(x){
+  sum(is.na(x))
+}) < 300, ]
+
+identical(data_clinical_patient$PATIENT_ID, data_clinical_sample$PATIENT_ID) # data aligned already
+table(data_clinical_sample$GRADE)
+high_grade = grepl("G2|G3|G4", data_clinical_sample$GRADE)
+
+data_clinical_sample = data_clinical_sample[high_grade, ]
+data_clinical_patient = data_clinical_patient[high_grade, ]
+
+patients = names(data_mrna)
+time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
+status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
+table(status, exclude = NULL)
+status[which(status == "")] = NA
+
+length(which(is.na(time)==F))
+length(which(is.na(status)==F))
+```
+
+#### Test for good p value
+
+```{r}
+p_threshold = c(1*10^-(0:10), 5*10^-(1:10))
+fc_threshold = 0
+treatments <- c("Carbo", "Olaparib", "NK")
+conserve_gene_only <- TRUE
+
+signature_selection <- data.frame(
+  name = c(
+    "log2FC_preR_preS_adj_boot_p", 
+    "log2FC_preR_preS_adj_perm_p",
+    "log2FC_preR_preS_p_adj",
+    "log2FC_preR_preS_p"
+  ),
+  logFC = c(
+    "_log2FC_preR_preS_adj",
+    "_log2FC_preR_preS_adj",
+    "_log2FC_preR_preS",
+    "_log2FC_preR_preS"
+  ),
+  p = c(
+    "_boot_p",
+    "_perm_p",
+    "_preR_preS_p_adj",
+    "_preR_preS_p"
+  )
+)
+
+res <- NULL
+for (t in treatments){
+  for (s in 1:nrow(signature_selection)){
+    for (i in 1:length(p_threshold)){
+      tmp <- NULL
+      data_mrna2 <- data_mrna
+      if (conserve_gene_only){
+        deg_test <- filter(deg, ensembl %in% sister_conserve_gene)
+      } else {
+        deg_test <- deg
+      }
+      index1 = which(
+        deg_test[[paste0(t, signature_selection$logFC[s])]] < -fc_threshold & 
+          deg_test[[paste0(t, signature_selection$p[s])]] <= p_threshold[i]
+        ) # downregulated genes in pre-resistant cell
+      index2 = which(
+        deg_test[[paste0(t, signature_selection$logFC[s])]] > fc_threshold &
+          deg_test[[paste0(t, signature_selection$p[s])]] <= p_threshold[i]
+        ) # upregulated genes in pre-resistant cell
+      index1_symbol = deg_test$symbol[index1]
+      
+      index = c(index1, index2)
+      length(index)
+      deg_test = deg_test[index, ]
+      # deg_test$symbol
+      
+      deg_test = deg_test[match(rownames(data_mrna2), deg_test$symbol), ]
+      n_gene <- nrow(na.omit(deg_test))
+      
+      if (n_gene < 50) {
+        break
+      }
+      
+      # reverse index1 gene expressions
+      data_mrna2[which(rownames(data_mrna2) %in% index1_symbol), ] = -data_mrna2[which(rownames(data_mrna2) %in% index1_symbol), ]
+      
+      # gene selection
+      index = which(is.na(deg_test$symbol) == F)
+      
+      res1 = c()
+      for (j in 1:length(patients)){
+        cat('\r', j)
+        res.tmp = rank(data_mrna2[, j], na.last = "keep") # min = r1, max = rmax
+        res1[j] = weighted.mean(res.tmp[index], w = abs(deg_test[[paste0(t, signature_selection$logFC[s])]][index]), na.rm = TRUE) # rank of the preR signature genes
+        
+      }
+      time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
+      status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
+      
+      group = ifelse(res1 > quantile(res1, 0.5), 1, 0) # lower rank survives better
+      data_plot = data.frame(time = time, status = as.numeric(as.factor(status)), group = group)
+      set.seed(123)
+      fit <- survfit(Surv(time, status) ~ group, data = data_plot)
+      fit.coxph = coxph(Surv(time, status) ~ group, data = data_plot)
+      survival <- summary(fit.coxph)
+      
+      tmp <- data.frame(
+        p_threshold = p_threshold[i],
+        n_gene = n_gene,
+        survival_p = survival$logtest[3],
+        signature_type = signature_selection$name[s],
+        treatment = t
+      )
+
+      res <- rbind.data.frame(res, tmp)
+    }
+  }
+}
+
+
+write.csv(
+  res,
+  paste0(
+    sub_output_dir,
+    "preR_preS_survival",
+    ifelse(conserve_gene_only, "_conserve_gene", ""),
+    ifelse(deconvolute, "_deconvoluted.csv", "_non_deconvoluted.csv")),
+  row.names = FALSE
+)
+```
+
+#### Survival plot with selected parameters
+
+```{r}
+conserve_gene_only <- FALSE
+
+if (conserve_gene_only) {
+  p_threshold = 1*10^(-8)
+  fc_threshold = 0
+} else {
+  p_threshold = 1*10^(-8)
+  fc_threshold = 0
+}
+data_mrna2 <- data_mrna
+  
+if (conserve_gene_only){
+  deg_test <- filter(deg, ensembl %in% sister_conserve_gene)
+} else {
+  deg_test <- deg
+}
+
+index1 = which(deg_test$avg_log2FC <= -fc_threshold & deg_test$p_val_adj <= p_threshold) # downregulated genes when BRCA1 is knocked out (BRCA-)
+index2 = which(deg_test$avg_log2FC > fc_threshold & deg_test$p_val_adj <= p_threshold) # upregulated genes when BRCA1 is knocked out
+index2_symbol = deg_test$symbol[index2]
+
+index = c(index1, index2)
+length(index)
+deg_test = deg_test[index, ]
+# deg_test$symbol
+
+deg_test = deg_test[match(rownames(data_mrna2), deg_test$symbol), ]
+
+# reverse index2 gene expressions
+data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ] = -data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ]
+
+# gene selection
+index = which(is.na(deg_test$symbol) == F)
+
+res1 = c()
+for (j in 1:length(patients)){
+  cat('\r', j)
+  res.tmp = rank(data_mrna2[, j], na.last = "keep") # min = r1, max = rmax
+  res1[j] = weighted.mean(res.tmp[index], w = abs(deg_test$avg_log2FC[index])) # rank of the BRCAness genes
+  # res1[j] = weighted.mean(res.tmp[index], w = abs(deg_test$avg_log2FC[index])*(-log10(deg_test$p_val_adj[index]))) # rank of the BRCAness genes
+  
+}
+time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
+status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
+
+group = ifelse(res1 > quantile(res1, 0.5), 1, 0) # lower rank survives better
+data_plot = data.frame(time = time, status = as.numeric(as.factor(status)), group = group)
+set.seed(123)
+fit <- survfit(Surv(time, status) ~ group, data = data_plot)
+fit.coxph = coxph(Surv(time, status) ~ group, data = data_plot)
+s <- summary(fit.coxph)
+# res[i, 3] <- s$logtest[3]
+  
+pdf(paste0(sub_output_dir,"FigureS6A_threshold_", p_threshold, ifelse(conserve_gene_only, "BRCA_COV_OS_conserve_gene.pdf", "BRCA_COV_OS.pdf")), width = 4, height = 5.5, pointsize = 20)
+fig <- ggsurvplot(
+  fit,
+  data = data_plot,
+  palette = c(red, blue),
+  risk.table = T,
+  legend.title = "HRD (deg)", # - undeconvoluted",
+  legend.labs = c("high", "low"),
+  xlab = "Time (months)", ylab = "Overall survival",
+  ggtheme = theme_survminer(
+    base_size = 14,
+    font.main = c(14, "plain", "black"),
+    font.x = c(14, "plain", "black"),
+    font.y = c(14, "plain", "black"),
+    font.caption = c(14, "plain", "black"),
+    font.legend = c(14, "plain", "black"),
+    font.tickslab = c(14, "plain", "black"),
+    font.submain = c(14, "plain", "black")
+  ),
+  pval = signif(s$logtest[3], 2),
+  pval.coord = c(100, 0.75)
+  ) +
+  guides(colour = guide_legend(nrow = 2))
+fig
+dev.off()
+```
+
+# preR-preS signature in subclone A
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "test/DEG_within_subclone_A")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+treatments <- c("Carbo", "NK", "Olaparib")
+```
+
+```{r}
+data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+cell_anno <- data@meta.data
+write.csv(cell_anno, paste0(sub_output_dir, "cell_annotation_all.csv"))
+rm(data)
+```
+
+```{r}
+data <- readRDS("./data/input/all_bt_sample_merge_filtered_gene_sisters.RDS")
+length(setdiff(colnames(data), rownames(cell_anno)))
+length(setdiff(rownames(cell_anno), colnames(data)))
+length(intersect(rownames(cell_anno), colnames(data)))
+meta_data <- cell_anno$CNV_subclone
+names(meta_data) <- rownames(cell_anno)
+data <- AddMetaData(data, meta_data, "CNV_subclone")
+data <- subset(data, cells = colnames(data)[data$CNV_subclone == "A"])
+```
+
+# Tests
+
+```{r}
+# preR-preS in singleton
+samples <- unique(data$sample)
+Idents(data) <- "drugSens"
+for (s in samples) {
+  deg_prer_pres <- FindMarkers(
+      subset(data, cells = colnames(data)[is.na(data$sisters) & data$sample == s]),
+      ident.1 = "pre-resistant",
+      ident.2 = "pre-sensitive",
+      test.use = "wilcox", # old version is "wilcox"
+      logfc.threshold = 0,
+      min.pct = 0,
+      verbose = TRUE
+    )
+  deg_prer_pres <- deg_prer_pres %>%
+    rownames_to_column(var = "ensembl") %>%
+    left_join(as.data.frame(data@misc$gene_meta), by = "ensembl")
+  
+  write.csv(deg_prer_pres, paste0(sub_output_dir, "/deg_prer_pres_in_singleton_wilcox_", s, ".csv"), row.names = FALSE)
+}
+
+```
+
+## Integrate DEGs
+
+```{r}
+treatments <- c("NK", "Carbo", "Olaparib", "ctrl")
+Idents(data) <- "drugSens"
+conserved_gene <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
+  select(ensembl, symbol, conserve_gene)
+for (t in treatments) {
+  deg1 <- read.csv(paste0("./data/output/test/DEG_within_subclone_A/deg_prer_pres_in_singleton_wilcox_", t, "1.csv"),
+                   stringsAsFactors = FALSE)
+  deg2 <- read.csv(paste0("./data/output/test/DEG_within_subclone_A/deg_prer_pres_in_singleton_wilcox_", t, "2.csv"),
+                   stringsAsFactors = FALSE)
+  colnames(deg1)[!colnames(deg1) %in% c("ensembl", "symbol")] <- paste0(t,"_1_", colnames(deg1)[!colnames(deg1) %in% c("ensembl", "symbol")])
+  colnames(deg2)[!colnames(deg2) %in% c("ensembl", "symbol")] <- paste0(t, "_2_", colnames(deg2)[!colnames(deg2) %in% c("ensembl", "symbol")])
+  deg_merge <- deg1 %>% 
+    full_join(deg2, by = c("ensembl", "symbol")) %>% 
+    full_join(conserved_gene, by = c("ensembl", "symbol"))
+  write.csv(deg_merge, paste0(sub_output_dir, "/deg_prer_pres_in_singleton_wilcox_overlap_", t, ".csv"), row.names = FALSE)
+}
+```
+
+## Adjust growth control
+
+```{r}
+treatments <- c("NK", "Carbo", "Olaparib")
+control <- read.csv(paste0(sub_output_dir, "/deg_prer_pres_in_singleton_wilcox_overlap_ctrl.csv")) %>% 
+  mutate(mean_avg_log2FC_ctrl = (ctrl_1_avg_log2FC + ctrl_2_avg_log2FC) / 2) %>% 
+  mutate(mean_p_val_adj_ctrl = (ctrl_1_p_val_adj + ctrl_2_p_val_adj) / 2) %>% 
+  mutate(mean_p_val_ctrl = (ctrl_1_p_val + ctrl_2_p_val) / 2) %>% 
+  select(ensembl, symbol, mean_avg_log2FC_ctrl, mean_p_val_adj_ctrl, mean_p_val_ctrl)
+
+deg_adjust_merge <- NULL
+
+for (t in treatments) {
+  deg <-  read.csv(paste0(sub_output_dir, "/deg_prer_pres_in_singleton_wilcox_overlap_", t, ".csv"))
+  deg[[paste0("mean_avg_log2FC_", t)]] <- (deg[[paste0(t, "_1_avg_log2FC")]] + deg[[paste0(t, "_2_avg_log2FC")]]) / 2
+  deg[[paste0("mean_p_val_adj_", t)]] <- (deg[[paste0(t, "_1_p_val_adj")]] + deg[[paste0(t, "_2_p_val_adj")]]) / 2
+  deg[[paste0("mean_p_val_", t)]] <- (deg[[paste0(t, "_1_p_val")]] + deg[[paste0(t, "_2_p_val")]]) / 2
+  
+  deg <- deg[, c(
+      "ensembl", "symbol", paste0("mean_avg_log2FC_", t),
+      paste0("mean_p_val_adj_", t), paste0("mean_p_val_", t))
+    ]
+  
+  deg_adjust <- deg %>% 
+    full_join(control, by = c("ensembl", "symbol"))
+  
+  deg_adjust[[paste0("avg_log2FC_", t, "_ctrl_adj")]] <- deg_adjust[[paste0("mean_avg_log2FC_", t)]] - deg_adjust[["mean_avg_log2FC_ctrl"]]
+  
+  if (is.null(deg_adjust_merge)){
+    deg_adjust_merge <- deg_adjust
+  } else {
+    deg_adjust_merge <- full_join(
+      deg_adjust_merge,
+      select(deg_adjust, -mean_avg_log2FC_ctrl, -mean_p_val_adj_ctrl, -mean_p_val_ctrl),
+      by = c("ensembl", "symbol"))
+  }
+}
+
+deg_adjust_merge <- deg_adjust_merge %>% 
+  full_join(conserved_gene, by = c("ensembl", "symbol"))
+write.csv(deg_adjust_merge, paste0(sub_output_dir, "/deg_prer_pres_in_singleton_wilcox_adjusted_by_control.csv"), row.names = FALSE)
+
+deg_adjust_log2FC <- deg_adjust_merge %>%
+  dplyr::select(ensembl, symbol, conserve_gene, ends_with("_ctrl_adj"))
+write.csv(deg_adjust_log2FC, paste0(sub_output_dir, "/deg_prer_pres_in_singleton_wilcox_adjusted_by_control_log2FC_only.csv"), row.names = FALSE)
+```
+
 
 ```{r}
 

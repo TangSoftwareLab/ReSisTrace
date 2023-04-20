@@ -211,3 +211,264 @@ PlotPreR_RSimilarity <- function(distance,
               nudge_x = 0.15)
   return(p)
 }
+
+TwoDoseResponseCurve <- function(
+    data,
+    plot_block = 1,
+    drug_index = 1,
+    other_drug_dose = 2,
+    adjusted = TRUE,
+    Emin = NA,
+    Emax = NA,
+    grid = TRUE,
+    point_color = "#C24B40",
+    curve_color = "black",
+    point_color_2 = "blue",
+    curve_color_2 = "black",
+    text_size_scale = 1,
+    plot_title = NULL,
+    plot_subtitle = NULL,
+    plot_setting = list(
+      cex.lab = 1 * text_size_scale,
+      mgp = c(2, 0.5, 0),
+      font.main = 2,
+      font.lab = 1,
+      cex.main = 14 / 12 * text_size_scale,
+      bty = "l",
+      lwd = 1.5
+    ),
+    plot_new = TRUE,
+    record_plot = TRUE,
+    ...) {
+  
+  # 1. Check the input data
+  # Data structure of 'data'
+  if (!is.list(data)) {
+    stop("Input data is not in list format!")
+  }
+  if (!all(c("drug_pairs", "response") %in% names(data))) {
+    stop("Input data should contain at least tow elements: 'drug_pairs' and 
+         'response'. Please prepare your data with 'ReshapeData' function.")
+  }
+  # Parameter 'plot_block'
+  if (length(drug_index) != 1) {
+    stop("The length of 'plot_block' parameter is not 1. Please chosed only one
+         block for visualization.")
+  }
+  # Parameter 'drug'
+  concs <- grep("conc\\d", colnames(data$response), value = TRUE)
+  if (length(drug_index) != 1) {
+    stop("The length of 'drug' parameter is not 1. Please chosed only one
+         drug in the block for visualization.")
+  } else if (!drug_index %in% sub("conc", "", concs)) {
+    stop("The input drug_index '", drug_index, "' is not found in input data. ",
+         "Available indexes are '", 
+         paste(sub("conc", "", concs), collapse = "', '"),
+         "'.")
+  }
+  
+  # Annotation data
+  drug_anno <- data$drug_pairs[data$drug_pairs$block_id == plot_block, ] %>% 
+    dplyr::select(drug = paste0("drug", drug_index),
+                  unit = paste0("conc_unit", drug_index))
+  
+  # Extract single drug dose response
+  if (!adjusted) {
+    response <- data$response %>% 
+      dplyr::select(-response) %>% 
+      dplyr::rename(response = response_origin) %>% 
+      dplyr::filter(block_id == plot_block)
+  } else {
+    response <- data$response %>% 
+      dplyr::filter(block_id == plot_block)
+  }
+  single_drug_data <- ExtractSingleDrug(response)
+  single_drug_data <- single_drug_data[[paste0("conc", drug_index)]]
+  # Fit model for the row drug
+  drug_model <- suppressWarnings(
+    FitDoseResponse(
+      single_drug_data,
+      Emin = Emin,
+      Emax = Emax
+    )
+  )
+  
+  if (is.null(plot_subtitle)) {
+    plot_subtitle <- paste(
+      drug_anno$drug,
+      "in Block",
+      plot_block
+    )
+  }
+  if (is.null(plot_title)) {
+    plot_title <- "Dose-Response Curve"
+  }
+  
+  # plot the curve for the drug
+  # For all of R's graphical devices, the default text size is 12 points but it
+  # can be reset by including a pointsize argument to the function that opens
+  #the graphical device. From ?pdf:
+  # curve_pred <- data.frame(
+  #   dose = seq(0, max(single_drug_data$dose), length.out = 700),
+  #   response = PredictModelSpecify(
+  #     drug_model, 
+  #     seq(0, max(single_drug_data$dose), length.out = 700)
+  #   ),
+  #   stringsAsFactors = FALSE
+  # )
+  # p1 <- ggplot(single_drug_data) +
+  #   geom_point(aes(log10(dose), response)) +
+  #   geom_line(aes(log10(dose), response), data = curve_pred) + 
+  #   scale_y_continuous(trans = log10_trans())
+  # p1
+  
+  model_type <- FindModelType(drug_model)
+  if (model_type == "LL.4"){
+    # Set break point of x-axis (numbers smaller than it are set as 0)
+    bp <- round(min(log10(drug_model$origData$dose[drug_model$origData$dose > 1e-10])))-1
+    max <- round(max(log10(drug_model$origData$dose)))
+    step <- (max - bp)%/%4
+    if (step < 1){
+      step <- 1
+    }
+    xt <- 10 ^ seq(bp, max, by = step)
+    xtlab <- xt
+    xtlab[1] <- 0
+  } else { # model type is L.4
+    # Set break point of x-axis (numbers smaller than it are set as 0)
+    bp <- round(min(log10(drug_model$origData$dose[drug_model$origData$dose > 1e-10])))-1
+    # if (bp == 0) {
+    #   bp <- -1
+    # }
+    max <- round(max(log10(drug_model$origData$dose)))
+    step <- (max - bp)%/%4
+    if (step < 1){
+      step <- 1
+    }
+    # Set x-axis tick markders
+    xt <- 10 ^ seq(bp, max, by = step)
+    xtlab <- xt
+    xtlab[1] <- 0
+    drug_model$dataList$dose <- exp(drug_model$dataList$dose)
+    drug_model$dataList$dose[drug_model$dataList$dose < 10^bp] <- 10^bp
+  }
+  
+  if (is.null(grid)){
+    grid_exp <- NULL
+  } else if (grid){
+    grid_exp <- expression(
+      {
+        graphics::grid(nx = NA, ny = NULL, col = "#DFDFDF", lty = 1)
+        graphics::abline(col = "#DFDFDF", v = xt)
+      }
+    )
+  } else {
+    grid_exp <- NULL
+  }
+  
+  if (plot_new) {
+    graphics::plot.new()
+    grDevices::dev.control("enable")
+  }
+  
+  suppressWarnings(graphics::par(plot_setting))
+  
+  # Plot dots
+  graphics::plot(
+    x = drug_model,
+    xlab = paste0("Concentration (", drug_anno$unit, ")"),
+    ylab = "Inhibition (%)",
+    type = "obs",
+    log = "x",
+    col = point_color,
+    pch = 16,
+    cex.axis = 1 * text_size_scale,
+    panel.first = eval(grid_exp),
+    xttrim = FALSE,
+    conName = NULL,
+    bp = 10 ^ bp,
+    xt = xt,
+    xtlab = xtlab,
+    ...
+  )
+  
+  # Plot curve
+  graphics::plot(
+    x = drug_model,
+    type = "none",
+    log = "x",
+    col = curve_color,
+    cex.axis = 1 * text_size_scale,
+    add = TRUE,
+    lwd = 3,
+    xttrim = FALSE,
+    conName = NULL,
+    bp = 10 ^ bp,
+    xt = xt,
+    xtlab = xtlab,
+    ...
+  )
+  
+  # Plot title
+  graphics::title(plot_title)
+  graphics::mtext(
+    plot_subtitle,
+    cex = 7/9 * graphics::par()$cex.main * text_size_scale
+  )
+  
+  if (record_plot) {
+    p <- grDevices::recordPlot()
+    grDevices::dev.off()
+    print(p)
+    return(p)
+  } else {
+    return(NULL)
+  }
+}
+
+#' Extract Single Drug Dose Response
+#'
+#' \code{ExtractSingleDrug} extracts the dose-response values of single drug
+#'  from a drug combination dose-response matrix.
+#'
+#' @param response A data frame. It must contain the columns: "conc1", "conc2",
+#' ..., for the concentration of the combined drugs and "response" for the
+#' observed \%inhibition at certain combination.
+#'
+#' @return A list contains several data frames each of which contains 2 columns:
+#'   \itemize{
+#'     \item \strong{dose} The concertration of drug.
+#'     \item \strong{response} The cell's response (inhibation rate) to
+#'       corresponding drug concertration.
+#' }
+#'
+#' @author
+#' \itemize{
+#'   \item Shuyu Zheng \email{shuyu.zheng@helsinki.fi}
+#'   \item Jing Tang \email{jing.tang@helsinki.fi}
+#' }
+#' 
+#' @export
+#'
+#' @examples
+#' data("mathews_screening_data")
+#' data <- ReshapeData(mathews_screening_data)
+#' response <- data$response[data$response$block_id == 1,
+#'                           c("conc1", "conc2", "response")]
+#' single <- ExtractSingleDrug(response)
+ExtractSingleDrug <- function(response) {
+  concs <- grep("conc\\d", colnames(response), value = TRUE)
+  single_drug <- vector("list", length(concs))
+  names(single_drug) <- concs
+  conc_sum <- rowSums(response[, concs])
+  for (conc in concs) {
+    index <- which(response[, conc] == conc_sum)
+    single_drug[[conc]] <- data.frame(
+      dose = unlist(response[index, conc]),
+      response = response[index, "response"],
+      row.names = NULL,
+      stringsAsFactors = FALSE
+    )
+  }
+  return(single_drug)
+}
