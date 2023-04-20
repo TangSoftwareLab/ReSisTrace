@@ -772,8 +772,9 @@ table(label_sharing$freq)/nrow(label_sharing) * 100
 
 ```{r}
 # proportion of different frequency in each sample
-plot_table <- label_sharing %>% 
-  group_by(sample, freq) %>% 
+plot_table <- label_sharing %>%
+  mutate(unique = freq == 1) %>% 
+  group_by(sample, unique) %>% 
   summarise(
     n = n(),
     total = mean(total),
@@ -781,17 +782,122 @@ plot_table <- label_sharing %>%
   mutate(
     proportion = n/total * 100
   )
-plot_table$freq <- factor(plot_table$freq, levels = seq(6, 1))
+# plot_table$freq <- factor(plot_table$freq, levels = seq(6, 1))
 plot_table$sample <- gsub("_", " ", plot_table$sample)
+plot_table$sample <- factor(
+  plot_table$sample,
+  levels = c("Carboplatin 1", "Carboplatin 2", "Olaparib 1", "Olaparib 2",
+              "NK 1", "NK 2", "Control 1", "Control 2")
+  )
 write.csv(plot_table, paste0(sub_output_dir, "unique_label_per_bt_sample.csv"), row.names = FALSE)
 
-colors = c("#3C5488","#5A6E9A","#7888AC","#95A3BF","#B3BDD1","#D1D7E3")
+# colors = c("#3C5488","#5A6E9A","#7888AC","#95A3BF","#B3BDD1","#D1D7E3")
+colors = c("#8f9dbb","#d1d7e3")
 
-p <- ggplot(plot_table, aes(x = sample, y = proportion, fill = freq)) +
+p <- ggplot(plot_table, aes(x = sample, y = proportion, fill = unique)) +
   geom_bar(position = "stack", stat = "identity") +
   labs(
     y = "Proportion of lineage labels (%)",
-    fill = "Number of samples"
+    fill = ""
+  ) + 
+  # ylim(c(0, 100)) +
+  scale_fill_manual(values = colors, labels = c("Shared by samples", "Unique per sample")) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 20),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 20,
+      color = "black"
+    ),
+    axis.text.y = element_text(
+      size = 20,
+      color = "black"
+    ),
+    axis.title.x = element_blank(),
+    legend.text = element_text(size = 20),
+    # legend.title = element_text(size = 15),
+    # legend.position = "top",
+    panel.grid = element_blank()
+  )
+ggsave(paste0(sub_output_dir, "unique_label_per_bt_sample.pdf"), width = 7.5, height = 5)
+
+plot_table %>%
+  ungroup() %>% 
+  filter(unique == TRUE) %>% 
+  summarise(mean = mean(proportion))
+```
+
+## Percentage of cells have barcodes
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "FigureS1/")
+if (!dir.exists(sub_output_dir)) {
+  dir.create(sub_output_dir)
+}
+```
+
+Prepare data table
+
+```{r}
+data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+```
+
+```{r}
+table <- data@meta.data %>%
+  mutate(label_detect = !is.na(drugSens)) %>% 
+  select(sample, time_point, label_detect) %>% 
+  group_by(sample, time_point, label_detect) %>% 
+  summarize(n = n(), .groups = "keep")
+
+total <- table %>% 
+  group_by(sample, time_point) %>% 
+  summarise(total = sum(n), .groups = "keep")
+```
+
+Visualization
+
+```{r}
+plot_table <- table %>% 
+  left_join(total, by = c("sample", "time_point")) %>% 
+  mutate(proportion = n/total * 100)
+plot_table <- plot_table %>% 
+  mutate(
+    sample = case_when(
+      sample == "Carbo1" ~ "Carboplatin 1", 
+      sample == "Carbo2" ~ "Carboplatin 2", 
+      sample == "ctrl1" ~ "Control 1", 
+      sample == "ctrl2" ~ "Control 2", 
+      sample == "Olaparib1" ~ "Olaparib 1", 
+      sample == "Olaparib2" ~ "Olaparib 2", 
+      sample == "NK1" ~ "NK 1", 
+      sample == "NK2" ~ "NK 2"
+    ),
+    time_point = case_when(
+      time_point == "AfterTreatment" ~ "Post-treatment",
+      time_point == "BeforeTreatment" ~ "Pre-treatment"
+    ))
+plot_table$sample <- factor(
+  plot_table$sample,
+  levels = c("Carboplatin 1", "Carboplatin 2", "Olaparib 1", "Olaparib 2",
+             "NK 1", "NK 2", "Control 1", "Control 2")
+  )
+write.csv(plot_table, paste0(sub_output_dir, "proportion_of_cells_having_label.csv"), row.names = FALSE)
+
+
+colors = c("#8f9dbb","#d1d7e3")
+
+p <- ggplot(
+  plot_table %>% filter(time_point == "Pre-treatment"),
+  aes(x = sample, y = proportion, fill = label_detect)
+  ) +
+  geom_bar(position = "stack", stat = "identity") +
+  labs(
+    y = "Proportion of cells (%)",
+    fill = "Lineage labels detected",
+    title = "Pre-treatment"
   ) + 
   ylim(c(0, 100)) +
   scale_fill_manual(values = colors) +
@@ -810,43 +916,44 @@ p <- ggplot(plot_table, aes(x = sample, y = proportion, fill = freq)) +
     ),
     axis.title.x = element_blank(),
     legend.text = element_text(size = 15),
-    legend.title = element_text(size = 15),
+    legend.title = element_text(size = 20),
+    plot.title = element_text(size = 20, hjust = 0.5),
     panel.grid = element_blank()
   )
-ggsave(paste0(sub_output_dir, "unique_label_per_bt_sample.pdf"), width = 6, height = 5)
-```
+ggsave(paste0(sub_output_dir, "proportion_of_cells_having_label_preTreatment.pdf"), width = 8, height = 5.3)
 
-## Percentage of cells have barcodes
-
-```{r}
-rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
-sub_output_dir <- paste0(output_dir, "FigureS1/")
-if (!dir.exists(sub_output_dir)) {
-  dir.create(sub_output_dir)
-}
-```
-
-Prepare data table
-
-```{r}
-samples <- c("Control_1", "Control_2", "Carboplatin_1", "Carboplatin_2", "Olaparib_1", "Olaparib_2", "NK_1", "NK_2")
-
-label_sequences <- vector(mode = "list", length = length(samples))
-names(label_sequences) <- samples
-
-for (s in samples){
-  load(paste0("./data/input/preprocess/", s, "/lineage_label_tables.RData"))
-  label_index$sample <- s
-  label_index$total <- nrow(label_index)
-  label_sequences[[s]] <- label_index
-}
-
-label_sharing <- bind_rows(label_sequences)
-frequency <- as.data.frame(table(label_sharing$seq))
-names(frequency) <- c("seq", "freq")
-label_sharing <- left_join(label_sharing, frequency, by = "seq")
-max(label_sharing$freq)
-table(label_sharing$freq)
+p <- ggplot(
+  plot_table %>% filter(time_point == "Post-treatment"),
+  aes(x = sample, y = proportion, fill = label_detect)
+  ) +
+  geom_bar(position = "stack", stat = "identity") +
+  labs(
+    y = "Proportion of cells (%)",
+    fill = "Lineage labels detected",
+    title = "Post-treatment"
+  ) + 
+  ylim(c(0, 100)) +
+  scale_fill_manual(values = colors) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 20),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 20,
+      color = "black"
+    ),
+    axis.text.y = element_text(
+      size = 20,
+      color = "black"
+    ),
+    axis.title.x = element_blank(),
+    legend.text = element_text(size = 15),
+    legend.title = element_text(size = 20),
+    plot.title = element_text(size = 20, hjust = 0.5),
+    panel.grid = element_blank()
+  )
+ggsave(paste0(sub_output_dir, "proportion_of_cells_having_label_postTreatment.pdf"), width = 8, height = 5.3)
 ```
 
 ## B1: Number of divisions after 1x doubling
@@ -916,7 +1023,7 @@ p <- ggplot(plot_table, aes(x = Division, y = mean, fill = Division)) +
   )
 ggsave(
   paste0(sub_output_dir, "FigureS1B1_cell_division_times.pdf"),
-  width = 5, height = 5
+  width = 5, height = 4.8
 )
 ```
 
@@ -1007,7 +1114,7 @@ p <- ggplot(plot_table, aes(x = Size_of_lineage, y = mean, fill = Size_of_lineag
   )
 ggsave(
   paste0(sub_output_dir, "FigureS1B2_frequence_of_lineage_label.pdf"),
-  width = 5, height = 5
+  width = 5, height = 4.8
 )
 ```
 
@@ -3404,7 +3511,7 @@ write.csv(
 ```{r}
 res1 <- read.csv(
   paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_tcga_weighted_spearman", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
-  ) %>% 
+  ) %>%
   dplyr::select(
     Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
     NK = "NK_score", "p_threshold"
@@ -3412,6 +3519,9 @@ res1 <- read.csv(
 res1 <- res1[1:20, ]
 res1.df = reshape2::melt(res1, id.vars = "p_threshold", variable.name = "treatment")
 res1.df$group = "TCGA"
+res1.df %>%
+  filter(treatment == "NK") %>% 
+  summarise(mean = mean(value), sd = sd(value))
 
 res2 <- read.csv(
   paste0(sub_output_dir,"Figure3D_BRCA_preRpreS_gwc_connect_cov_weighted_spearman", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
@@ -3423,29 +3533,76 @@ res2 <- res2[1:20, ]
 res2.df = reshape2::melt(res2, id.vars = "p_threshold", variable.name = "treatment")
 res2.df$group = "COV362"
 
-res.df = rbind.data.frame(res1.df, res2.df)
+# res.df = rbind.data.frame(res1.df, res2.df)
+res.df = res2.df
 res.df$group <- factor(res.df$group, levels = c("TCGA", "COV362"))
 res.df$treatment <- factor(res.df$treatment, levels = c("Carboplatin", "Olaparib", "NK"))
 
 stat.test <- res.df %>%
-  dplyr::group_by(group) %>%
+  # dplyr::group_by(group) %>%
   t_test(value ~ treatment, ref.group = "NK") %>%
+  # add_xy_position(
+  #   x = "group", dodge = 0.8,
+  #   step.increase = 0.05
+  # ) %>%
   add_xy_position(
-    x = "group", dodge = 0.8,
-    step.increase = 0.05
-  ) %>%
+  x = "treatment", dodge = 0.8,
+  step.increase = 0.12) %>%
   add_significance("p")
 stat.test
 
+# TCGA + COV362 signatures
+# p <- ggboxplot(
+#   res.df,
+#   x = "group", y = "value", fill = "treatment",
+#   outlier.shape = NA
+# ) +
+#   stat_pvalue_manual(
+#     stat.test,
+#     label = "p.signif", tip.length = 0.01,
+#     bracket.nudge.y = -0.01,
+#     size = 4,
+#     label.size = 10
+#   ) +
+#   scale_y_continuous(limits = c(0, 0.62), expand = c(0 , 0)) +
+#   # geom_point(
+#   #   data = res.df[res.df$treatment !="Control",],
+#   #   mapping = aes(x = group, y = value, fill = treatment),
+#   #   position = position_jitterdodge(jitter.width = 0.5),
+#   #   size = 1,
+#   #   alpha = 0.5
+#   # ) +
+#   labs(x = "", y = "Connectivity score", fill = "")+
+#   theme_classic() + 
+#   theme(
+#     legend.position = "top",
+#     text = element_text(size = 22.5),
+#     axis.title = element_text(size = 22.5, color = "black"),
+#     axis.text = element_text(size = 22.5, color = "black"),
+#     legend.text = element_text(size = 21, color = "black")
+#   ) +
+#   scale_fill_manual(values = c(green, brown, purple))
+# ggplot2::ggsave(
+#   paste0(
+#     sub_output_dir,
+#     "Figure3D_BRCA_preRpreS_gwc_connect_cov_tcga_weighted_spearman",
+#     ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+#   ),
+#   p,
+#   width = 7, height = 7
+#   #width = 6, height = 5
+# )
+
+# COV362 signatures only
 p <- ggboxplot(
   res.df,
-  x = "group", y = "value", fill = "treatment",
+  x = "treatment", y = "value", fill = "treatment",
   outlier.shape = NA
 ) +
   stat_pvalue_manual(
     stat.test,
     label = "p.signif", tip.length = 0.01,
-    bracket.nudge.y = -0.01,
+    # bracket.nudge.y = -0.01,
     size = 4,
     label.size = 10
   ) +
@@ -3460,30 +3617,37 @@ p <- ggboxplot(
   labs(x = "", y = "Connectivity score", fill = "")+
   theme_classic() + 
   theme(
-    legend.position = "top",
-    text = element_text(size = 22.5),
-    axis.title = element_text(size = 22.5, color = "black"),
-    axis.text = element_text(size = 22.5, color = "black"),
+    # legend.position = "top",
+    legend.position = "none",
+    text = element_text(size = 21),
+    axis.title = element_text(size = 21, color = "black"),
+    axis.text = element_text(
+      size = 20,
+      color = "black"#,
+      #angle = 45,
+      #hjust = 1
+    ),
     legend.text = element_text(size = 21, color = "black")
   ) +
   scale_fill_manual(values = c(green, brown, purple))
 ggplot2::ggsave(
   paste0(
     sub_output_dir,
-    "Figure3D_BRCA_preRpreS_gwc_connect_cov_tcga_weighted_spearman",
+    "Figure3D_BRCA_preRpreS_gwc_connect_cov_weighted_spearman",
     ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
   ),
   p,
-  width = 7, height = 7
+  width = 5, height = 4
   #width = 6, height = 5
 )
+
 ```
 
 ## E: NK killing rate on COV362 and KURAMOCHI
 
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
-sub_output_dir <- paste0(output_dir, "Figure3/")
+sub_output_dir <- paste0(output_dir, "Figure3/four_donor_NK/")
 if (!dir.exists(sub_output_dir)){
   dir.create(sub_output_dir)
 }
@@ -3501,7 +3665,156 @@ data_summary <- function(data, varname, groupnames){
 }
 ```
 
-The tables for cell signals after treated by NK cells are from the experiments performed by Jun Dai. The background signal has been removed from the data. They are saved in "
+The tables for cell signals after treated by NK cells are from the experiments performed by Jun Dai. The background signal has been removed from the data.
+
+### Four donors
+
+```{r}
+data_area <- data.frame(
+  control = c(
+    rep("Kuramochi + ctrl vector", 4),
+    rep("COV362 + ctrl vector", 4),
+    rep("UWB1.289", 4)
+  ),
+  brca = c(
+    rep("Kuramochi + BRCA2", 4),
+    rep("COV362 + BRCA1", 4),
+    rep("UWB1.289 + BRCA1", 4)
+  ),
+  donor = rep(1:4, 3),
+  replicate = c(3, 3, 6, 6, 4, 3, 6, 6, 4, 3, 6, 6),
+  region = c(
+    "B4:H8", "B13:H17", "B22:N26", "B31:N35",
+    "B45:J49", "B54:H58", "B63:N67", "B72:N76",
+    "B86:J90", "B95:H99", "B104:N108", "B113:N117"
+  )
+)
+for (i in 1:nrow(data_area)){
+  table <- read_xlsx(
+    "./data/input/NK_cell_killing_experiment/HRD_NK from 4 donors_JD.xlsx",
+    col_names = c(
+      "rate", rep(data_area$control[i], data_area$replicate[i]),
+      rep(data_area$brca[i], data_area$replicate[i])
+    ),
+    range = data_area$region[i])
+  table <- table %>% 
+    pivot_longer(!rate, names_to = "sample", values_to = "cell_viability") %>% 
+    na.omit()
+  table$sample <- gsub("\\.\\..*", "", table$sample)
+  table$cell_viability <- table$cell_viability * 100
+  table$sample <- factor(
+    table$sample,
+    levels = c(data_area$control[i], data_area$brca[i])
+  )
+  
+  col = c(hrd_vector_color, hrp_color)
+  
+  stat.test <- table %>%
+    group_by(rate) %>%
+    t_test(cell_viability ~ sample) %>%
+    add_xy_position(
+      fun = "mean_sd", x = "rate", dodge = 0.8,
+      step.increase = 0.05) %>%
+    add_significance("p")
+  
+  # bar plot
+  p <- ggbarplot(
+    table,
+    x = "rate",
+    y = "cell_viability",
+    add = "mean_sd",
+    fill = "sample",
+    palette = col,
+    position = position_dodge(0.8)) +
+    ggtitle(paste0("Donor ", data_area$donor[i])) +
+    stat_pvalue_manual(
+      stat.test,
+      label = "p.signif", tip.length = 0.01,
+      bracket.nudge.y = - 2, hide.ns = TRUE,
+      label.size = 10, bracket.size = 0.8
+    ) +
+    labs(
+      x = "NK : target cell",
+      y = "Cell viability (%)",
+      fill = ""
+    ) +
+    scale_y_continuous(limits = c(0, 110), breaks=seq(0, 100, 25), expand = c(0, 0)) +
+    theme_classic() +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 21),
+      text = element_text(size = 21, color = "black"),
+      axis.text = element_text(size = 21, color = "black"),
+      plot.title = element_text(size = 21, hjust = 0.5)
+    )
+  ggsave(
+    paste0(sub_output_dir, gsub("\\ \\+.*", "", data_area$control[i]), "_donor_", data_area$donor[i], "_NK_bar_plot.pdf"),
+    width = 7.5, height = 3.5
+  )
+
+  # line plot
+  table$rate <- as.numeric(table$rate)
+  plot_table_line <- data_summary(
+    table,
+    varname="cell_viability", 
+    groupnames=c("sample", "rate")
+  )
+  sig_label <- stat.test %>% 
+    select(rate, sample = group1, p.signif)
+  sig_label$rate <- as.numeric(sig_label$rate)
+  sig_label <- sig_label %>% 
+    left_join(
+      plot_table_line %>% select(sample, cell_viability, rate),
+      by = c("rate", "sample")
+    )
+  sig_label$p.signif[sig_label$p.signif == "ns"] <- NA
+  p <- ggplot(
+    plot_table_line,
+    aes(
+      x = rate,
+      y = cell_viability,
+      color = sample,
+      group = sample
+    )
+  ) +
+    ggtitle(paste0("Donor ", data_area$donor[i])) +
+    geom_errorbar(
+      aes(ymin = cell_viability - sd, ymax = cell_viability + sd),
+      width = 0.2,
+      linewidth = 1) +
+    geom_line(linewidth = 1) +
+    geom_point() +
+    scale_color_manual(values = col) +
+    scale_y_continuous(limits = c(0, 110), breaks=seq(0, 100, 25), expand = c(0, 0)) +
+    scale_x_continuous(expand = c(0, 0)) +
+    labs(
+      x = "NK : target cell",
+      y = "Cell viability (%)"
+    ) +
+    annotate(
+      "text",
+      x = sig_label$rate,
+      y = sig_label$cell_viability + 15,
+      label = sig_label$p.signif,
+      color = "black",
+      size = 10
+    ) +
+    theme_classic() +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 21),
+      legend.title = element_blank(),
+      text = element_text(size = 21, color = "black"),
+      axis.text = element_text(size = 21, color = "black"),
+      plot.title = element_text(size = 21, hjust = 0.5)
+    )
+  ggsave(
+    paste0(sub_output_dir, gsub("\\ \\+.*", "", data_area$control[i]), "_donor_", data_area$donor[i], "_NK_line_plot.pdf"),
+    width = 7.5, height = 3.5
+  )
+}
+
+```
 
 ### COV362
 
@@ -4270,415 +4583,6 @@ test <- aov(dist ~ drugSens + subclone + drugSens:subclone, data = res_large[res
 summary(test)
 ```
 
-# Figure S6
-
-## A: COV362 survival plot
-
-```{r}
-rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
-sub_output_dir <- paste0(output_dir, "FigureS6/")
-if (!dir.exists(sub_output_dir)){
-  dir.create(sub_output_dir)
-}
-```
-
-```{r}
-data_clinical_patient = read.delim("./data/input/BRCAness/data_clinical_patient.txt", skip = 4)
-data_clinical_sample = read.delim("./data/input/BRCAness/data_clinical_sample.txt", skip = 4)
-data_mrna = readRDS("./data/input/BRCAness/EOC_deconv_TCGA_expr_mat.RDS")
-colnames(data_mrna) = gsub("\\.","\\-", colnames(data_mrna))
-colnames(data_mrna) = substr(colnames(data_mrna), 1, 15)
-data_mrna <- data_mrna[apply(data_mrna, 1, function(x){
-  sum(is.na(x))
-}) < 300, ]
-
-identical(data_clinical_patient$PATIENT_ID, data_clinical_sample$PATIENT_ID) # data aligned already
-table(data_clinical_sample$GRADE)
-high_grade = grepl("G2|G3|G4", data_clinical_sample$GRADE)
-
-data_clinical_sample = data_clinical_sample[high_grade, ]
-data_clinical_patient = data_clinical_patient[high_grade, ]
-
-patients = names(data_mrna) # 307 patients
-time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
-status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
-table(status, exclude = NULL)
-status[which(status == "")] = NA
-
-length(which(is.na(time)==F)) # 270 has survival
-length(which(is.na(status)==F)) # 271 has status
-cov362 <- read.csv("./data/input/BRCAness/deg_COV362.csv")
-```
-
-#### Test for good p value
-
-```{r}
-p_threshold = c(1*10^-(2:14), 5*10^-(2:14))
-fc_threshold = 0
-conserve_gene_only <- FALSE
-
-res <- mat.or.vec(length(p_threshold), 3)
-colnames(res) <- c("p_threshold", "n_gene", "survival_p")
-
-for (i in 1:length(p_threshold)){
-  data_mrna2 <- data_mrna
-  if (conserve_gene_only){
-    cov362_test <- filter(cov362, ensembl %in% sister_conserve_gene)
-  } else {
-    cov362_test <- cov362
-  }
-  res[i, 1] <- p_threshold[i]
-  
-  index1 = which(cov362_test$avg_log2FC <= -fc_threshold & cov362_test$p_val_adj <= p_threshold[i]) # downregulated genes when BRCA1 is knocked out (BRCA-)
-  index2 = which(cov362_test$avg_log2FC > fc_threshold & cov362_test$p_val_adj <= p_threshold[i]) # upregulated genes when BRCA1 is knocked out
-  index2_symbol = cov362_test$symbol[index2]
-  
-  index = c(index1, index2)
-  length(index)
-  cov362_test = cov362_test[index, ]
-  # cov362_test$symbol
-  
-  cov362_test = cov362_test[match(rownames(data_mrna2), cov362_test$symbol), ]
-  
-  res[i, 2] <- nrow(na.omit(cov362_test))
-  
-  # reverse index2 gene expressions
-  data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ] = -data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ]
-  
-  # gene selection
-  index = which(is.na(cov362_test$symbol) == F)
-  
-  res1 = c()
-  for (j in 1:length(patients)){
-    cat('\r', j)
-    res.tmp = rank(data_mrna2[, j], na.last = "keep") # min = r1, max = rmax
-    res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])) # rank of the BRCAness genes
-    # res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])*(-log10(cov362_test$p_val_adj[index]))) # rank of the BRCAness genes
-    
-  }
-  time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
-  status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
-  
-  group = ifelse(res1 > quantile(res1, 0.5), 1, 0) # lower rank survives better
-  data_plot = data.frame(time = time, status = as.numeric(as.factor(status)), group = group)
-  set.seed(123)
-  fit <- survfit(Surv(time, status) ~ group, data = data_plot)
-  fit.coxph = coxph(Surv(time, status) ~ group, data = data_plot)
-  s <- summary(fit.coxph)
-  res[i, 3] <- s$logtest[3]
-}
-
-write.csv(
-  res,
-  paste0(sub_output_dir, "FigureS6A_BRCA_survival_cov", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
-  row.names = FALSE
-)
-```
-
-#### Survival plot with selected parameters
-
-```{r}
-conserve_gene_only <- FALSE
-
-if (conserve_gene_only) {
-  p_threshold = 1*10^(-8)
-  fc_threshold = 0
-} else {
-  p_threshold = 1*10^(-8)
-  fc_threshold = 0
-}
-data_mrna2 <- data_mrna
-  
-if (conserve_gene_only){
-  cov362_test <- filter(cov362, ensembl %in% sister_conserve_gene)
-} else {
-  cov362_test <- cov362
-}
-
-index1 = which(cov362_test$avg_log2FC <= -fc_threshold & cov362_test$p_val_adj <= p_threshold) # downregulated genes when BRCA1 is knocked out (BRCA-)
-index2 = which(cov362_test$avg_log2FC > fc_threshold & cov362_test$p_val_adj <= p_threshold) # upregulated genes when BRCA1 is knocked out
-index2_symbol = cov362_test$symbol[index2]
-
-index = c(index1, index2)
-length(index)
-cov362_test = cov362_test[index, ]
-# cov362_test$symbol
-
-cov362_test = cov362_test[match(rownames(data_mrna2), cov362_test$symbol), ]
-
-# reverse index2 gene expressions
-data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ] = -data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ]
-
-# gene selection
-index = which(is.na(cov362_test$symbol) == F)
-
-res1 = c()
-for (j in 1:length(patients)){
-  cat('\r', j)
-  res.tmp = rank(data_mrna2[, j], na.last = "keep") # min = r1, max = rmax
-  res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])) # rank of the BRCAness genes
-  # res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])*(-log10(cov362_test$p_val_adj[index]))) # rank of the BRCAness genes
-  
-}
-time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
-status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
-
-group = ifelse(res1 > quantile(res1, 0.5), 1, 0) # lower rank survives better
-data_plot = data.frame(time = time, status = as.numeric(as.factor(status)), group = group)
-set.seed(123)
-fit <- survfit(Surv(time, status) ~ group, data = data_plot)
-fit.coxph = coxph(Surv(time, status) ~ group, data = data_plot)
-s <- summary(fit.coxph)
-# res[i, 3] <- s$logtest[3]
-  
-pdf(paste0(sub_output_dir,"FigureS6A_threshold_", p_threshold, ifelse(conserve_gene_only, "BRCA_COV_OS_conserve_gene.pdf", "BRCA_COV_OS.pdf")), width = 4, height = 5.5, pointsize = 20)
-fig <- ggsurvplot(
-  fit,
-  data = data_plot,
-  palette = c(red, blue),
-  risk.table = T,
-  legend.title = "HRD (COV362)", # - undeconvoluted",
-  legend.labs = c("high", "low"),
-  xlab = "Time (months)", ylab = "Overall survival",
-  ggtheme = theme_survminer(
-    base_size = 14,
-    font.main = c(14, "plain", "black"),
-    font.x = c(14, "plain", "black"),
-    font.y = c(14, "plain", "black"),
-    font.caption = c(14, "plain", "black"),
-    font.legend = c(14, "plain", "black"),
-    font.tickslab = c(14, "plain", "black"),
-    font.submain = c(14, "plain", "black")
-  ),
-  pval = signif(s$logtest[3], 2),
-  pval.coord = c(100, 0.75)
-  ) +
-  guides(colour = guide_legend(nrow = 2))
-fig
-dev.off()
-```
-
-## B: Bar plot for TCGA BRCAness signatute's log2FC
-
-```{r}
-rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
-sub_output_dir <- paste0(output_dir, "FigureS6/")
-if (!dir.exists(sub_output_dir)){
-  dir.create(sub_output_dir)
-}
-
-lseq <- function(from=1, to=100000, length.out=6) {
-  # logarithmic spaced sequence
-  # blatantly stolen from library("emdbook"), because need only this
-  exp(seq(log(from), log(to), length.out = length.out))
-}
-
-conserve_gene_only <- TRUE
-```
-
-```{r}
-data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
-log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
-```
-
-```{r}
-conserve_gene_only <- TRUE
-
-if (conserve_gene_only){
-  plot_table <- filter(log2FC_table, conserve_gene)
-} else {
-  plot_table <- log2FC_table
-}
-```
-
-```{r}
-selected_p_threshold <- 0.005
-
-table_tests <- plot_table %>% 
-  filter(BRCAness_tcga_p_adj <= selected_p_threshold) %>% 
-  select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj")) %>% 
-  na.omit() %>% 
-  arrange(BRCAness_tcga_logFC)
-
-# BRCAness
-pdf(
-  paste0(
-    sub_output_dir, "FigureS6B_BRCA_signature_tcga_p_", signif(selected_p_threshold, 2),
-    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
-  ),
-  width = 8, height = 4, pointsize = 20
-)
-cor = ifelse(table_tests$BRCAness_tcga_logFC > 0, red, blue)
-fig = barplot(
-  table_tests$BRCAness_tcga_logFC,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = "BRCAness signature (TCGA)",
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-
-# Olaparib
-r <- cor(
-  table_tests$BRCAness_tcga_logFC,
-  -table_tests$Olaparib_log2FC_preR_preS_adj,
-  method = "spearman", use = "complete"
-  )
-pdf(paste0(sub_output_dir,"FigureS6B_Olaparib_signature_tcga_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
-cor = ifelse(-table_tests$Olaparib_log2FC_preR_preS_adj > 0, red, blue)
-fig = barplot(
-  -table_tests$Olaparib_log2FC_preR_preS_adj,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = paste("Olaparib to TCGA, cor =", round(r,2)),
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-
-# Carboplatin
-r <- cor(
-  table_tests$BRCAness_tcga_logFC,
-  -table_tests$Carbo_log2FC_preR_preS_adj,
-  method = "spearman", use = "complete"
-)
-pdf(paste0(sub_output_dir,"FigureS6B_Carboplatin_signature_tcga_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
-cor = ifelse(-table_tests$Carbo_log2FC_preR_preS_adj > 0, red, blue)
-fig = barplot(
-  -table_tests$Carbo_log2FC_preR_preS_adj,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = paste("Carboplatin to TCGA, cor =", round(r,2)),
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-
-# NK
-r <- cor(
-  table_tests$BRCAness_tcga_logFC,
-  -table_tests$NK_log2FC_preR_preS_adj,
-  method = "spearman", use = "complete"
-  )
-pdf(paste0(sub_output_dir,"FigureS6B_NK_signature_tcga_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
-cor = ifelse(-table_tests$NK_log2FC_preR_preS_adj > 0, red, blue)
-fig = barplot(
-  -table_tests$NK_log2FC_preR_preS_adj,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = paste("NK to TCGA, cor =", round(r,2)),
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-```
-
-## C: Bar plot for COV362 BRCAness signatute's log2FC
-
-```{r}
-selected_p_threshold <- 1 * 10^-8
-
-table_tests <- plot_table %>% 
-  filter(BRCAness_cov_p_adj <= selected_p_threshold) %>% 
-  select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj")) %>% 
-  na.omit() %>% 
-  arrange(BRCAness_cov_logFC)
-
-# BRCAness
-pdf(
-  paste0(
-    sub_output_dir, "FigureS6C_BRCA_signature_cov_p_", signif(selected_p_threshold, 2),
-    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
-  ),
-  width = 8, height = 4, pointsize = 20
-)
-cor = ifelse(table_tests$BRCAness_cov_logFC > 0, red, blue)
-fig = barplot(
-  table_tests$BRCAness_cov_logFC,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = "BRCAness signature (COV362)",
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-
-# Olaparib
-r <- cor(table_tests$BRCAness_cov_logFC, -table_tests$Olaparib_log2FC_preR_preS_adj)
-pdf(paste0(sub_output_dir,"FigureS6C_Olaparib_signature_cov_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
-cor = ifelse(-table_tests$Olaparib_log2FC_preR_preS_adj > 0, red, blue)
-fig = barplot(
-  -table_tests$Olaparib_log2FC_preR_preS_adj,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = paste("Olaparib to COV362, cor =", round(r,2)),
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-
-# Carboplatin
-r <- cor(table_tests$BRCAness_cov_logFC, -table_tests$Carbo_log2FC_preR_preS_adj)
-pdf(paste0(sub_output_dir,"FigureS6C_Carboplatin_signature_cov_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
-cor = ifelse(-table_tests$Carbo_log2FC_preR_preS_adj > 0, red, blue)
-fig = barplot(
-  -table_tests$Carbo_log2FC_preR_preS_adj,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = paste("Carboplatin to COV362, cor =", round(r,2)),
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-
-# NK
-r <- cor(table_tests$BRCAness_cov_logFC, -table_tests$NK_log2FC_preR_preS_adj)
-pdf(paste0(sub_output_dir,"FigureS6C_NK_signature_cov_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
-cor = ifelse(-table_tests$NK_log2FC_preR_preS_adj > 0, red, blue)
-fig = barplot(
-  -table_tests$NK_log2FC_preR_preS_adj,
-  names.arg = table_tests$ensembl,
-  las = 2,
-  main = paste("NK to COV362, cor =", round(r,2)),
-  cex.names = 1,
-  col = cor,
-  ylab = 'FC',
-  xaxt = "n",
-  border = NA,
-  space = 0
-)
-dev.off()
-```
-
 # Figure 4 Drug combination discovery
 
 ```{r}
@@ -5257,14 +5161,14 @@ for (t in treatments){
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_sister_conserved_volcano.pdf"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_sister_conserved_volcano.png"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   
   # preR_preS
@@ -5336,14 +5240,14 @@ for (t in treatments){
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_sister_conserved_volcano.pdf"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_sister_conserved_volcano.png"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   
   # preR_preS_adj_boot_p
@@ -5416,14 +5320,14 @@ for (t in treatments){
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_boot_p_sister_conserved_volcano.pdf"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_boot_p_sister_conserved_volcano.png"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   
     # preR_preS_adj_perm_p
@@ -5496,14 +5400,14 @@ for (t in treatments){
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_p_sister_conserved_volcano.pdf"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_p_sister_conserved_volcano.png"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   
     # preR_preS_adj_perm_boot_p
@@ -5576,14 +5480,14 @@ for (t in treatments){
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_boot_p_sister_conserved_volcano.pdf"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_adj_perm_boot_p_sister_conserved_volcano.png"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   
     # preR_preS_p_adj
@@ -5661,14 +5565,14 @@ for (t in treatments){
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_adj_sister_conserved_volcano.pdf"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_adj_sister_conserved_volcano.png"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   
     # preR_preS_p
@@ -5740,14 +5644,14 @@ for (t in treatments){
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_sister_conserved_volcano.pdf"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
   ggsave(
     paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_sister_conserved_volcano.png"),
     p,
-    width = 5,
-    height = 5
+    width = 4.5,
+    height = 4.5
   )
 }
 ```
@@ -5975,18 +5879,54 @@ write.csv(template, paste0(combo_sub_dir, "all_selected_combos.csv"))
 ```{r}
 # First batch
 table <- readRDS(paste0(combo_sub_dir, "synergyfinder_object_with_score_first_batch.RDS"))
-
+# Second batch
+table2 <- readRDS(paste0(combo_sub_dir, "synergyfinder_object_with_score_second_batch.RDS"))
+# Third batch
+table3 <- readRDS(paste0(combo_sub_dir, "synergyfinder_object_with_score_third_batch.RDS"))
 synergys <- c("HSA", "ZIP", "Loewe", "Bliss")
 
+# dose-response range
+min_score_response <- min(c(table$response$response, table2$response$response, table3$response$response))
+max_score_response <- max(c(table$response$response, table2$response$response, table3$response$response))
+low_color_response <- min_score_response - 5
+high_color_response <- max_score_response + 5
 
+# First batch
 for (b in unique(table$drug_pairs$block_id)){
+  # dose-response map
+  Plot2DrugHeatmap(
+    table,
+    plot_block = b,
+    plot_value = "response",
+    summary_statistic = "mean",
+    high_value_color = red,
+    low_value_color = blue,
+    text_label_size_scale = 1.4,
+    statistic = "sd",
+    color_range = c(low_color_response, high_color_response)
+  )
+  ggsave(
+     paste0(
+      combo_sub_dir,
+      gsub(" ", "_", gsub(" : ", "-", table$drug_pairs$drug1[table$drug_pairs$block_id == b])),
+      "_",
+      table$drug_pairs$drug2[table$drug_pairs$block_id == b],
+      "_dose_response.pdf"
+    ),
+    # width = 3, # Science
+    # height = 3 # Science
+    width = 4,
+    height = 2.8
+  )
+  
+  # synergy map
   for (s in synergys){
-    min_score <- min(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]]))
-    max_score <- max(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]]))
-    low_color <- min_score - 5
+  min_score <- min(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]], table3$synergy_scores[[paste0(s,"_synergy")]]))
+  max_score <- max(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]], table3$synergy_scores[[paste0(s,"_synergy")]]))
+  low_color <- min_score - 5
   high_color <- max_score + 5
-    low_z <- min(table$synergy_scores[table$synergy_scores$block_id == b, paste0(s,"_synergy")]) - 5
-    high_z <- max(table$synergy_scores[table$synergy_scores$block_id == b, paste0(s,"_synergy")]) + 5
+  low_z <- min(table$synergy_scores[table$synergy_scores$block_id == b, paste0(s,"_synergy")]) - 5
+  high_z <- max(table$synergy_scores[table$synergy_scores$block_id == b, paste0(s,"_synergy")]) + 5
     pdf(
       paste0(
         combo_sub_dir,
@@ -6017,12 +5957,37 @@ for (b in unique(table$drug_pairs$block_id)){
 
 # Second batch
 
-table2 <- readRDS(paste0(combo_sub_dir, "synergyfinder_object_with_score_second_batch.RDS"))
-
 for (b in c(5, 6, 7, 18, 19)){
+  # dose-response map
+  Plot2DrugHeatmap(
+    table2,
+    plot_block = b,
+    plot_value = "response",
+    summary_statistic = "mean",
+    high_value_color = red,
+    low_value_color = blue,
+    text_label_size_scale = 1.4,
+    statistic = "sd",
+    color_range = c(low_color_response, high_color_response)
+  )
+  ggsave(
+    paste0(
+      combo_sub_dir,
+      gsub(" ", "_", gsub(" : ", "-", table2$drug_pairs$drug1[table2$drug_pairs$block_id == b])),
+      "_",
+      table2$drug_pairs$drug2[table2$drug_pairs$block_id == b],
+      "_dose_response.pdf"
+    ),
+    # width = 3, # Science
+    # height = 3 # Science
+    width = 4,
+    height = 2.8
+  )
+  
+  # synergy map
   for (s in synergys){
-    min_score <- min(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]]))
-    max_score <- max(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]]))
+    min_score <- min(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]], table3$synergy_scores[[paste0(s,"_synergy")]]))
+    max_score <- max(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]], table3$synergy_scores[[paste0(s,"_synergy")]]))
     low_color <- min_score - 5
   high_color <- max_score + 5
     low_z <- min(table2$synergy_scores[table2$synergy_scores$block_id == b, paste0(s,"_synergy")]) - 5
@@ -6056,13 +6021,36 @@ for (b in c(5, 6, 7, 18, 19)){
 }
 
 # Third batch
-
-table3 <- readRDS(paste0(combo_sub_dir, "synergyfinder_object_with_score_third_batch.RDS"))
-
 for (b in 1){
+  # dose-response map
+  Plot2DrugHeatmap(
+    table3,
+    plot_block = b,
+    plot_value = "response",
+    summary_statistic = "mean",
+    high_value_color = red,
+    low_value_color = blue,
+    text_label_size_scale = 1.4,
+    statistic = "sd",
+    color_range = c(low_color_response, high_color_response)
+  )
+  ggsave(
+    paste0(
+      combo_sub_dir,
+      gsub(" ", "_", gsub(" : ", "-", table3$drug_pairs$drug1[table3$drug_pairs$block_id == b])),
+      "_",
+      table3$drug_pairs$drug2[table3$drug_pairs$block_id == b],
+      "_dose_response.pdf"
+    ),
+    # width = 3, # Science
+    # height = 3 # Science
+    width = 4,
+    height = 2.8
+  )
+  
   for (s in synergys){
-    min_score <- min(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]]))
-    max_score <- max(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]]))
+    min_score <- min(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]], table3$synergy_scores[[paste0(s,"_synergy")]]))
+    max_score <- max(c(table$synergy_scores[[paste0(s,"_synergy")]], table2$synergy_scores[[paste0(s,"_synergy")]], table3$synergy_scores[[paste0(s,"_synergy")]]))
     low_color <- min_score - 5
   high_color <- max_score + 5
     low_z <- min(table3$synergy_scores[table3$synergy_scores$block_id == b, paste0(s,"_synergy")]) - 5
@@ -6286,6 +6274,599 @@ p <- ggplot2::ggplot(
   )
 # ggsave(paste0(combo_sub_dir, "heatmap_for_all_drugs.pdf"), height = 7, width = 14) # Science format
 ggsave(paste0(combo_sub_dir, "heatmap_for_all_drugs.pdf"), height = 6, width = 15)
+```
+
+# Figure S6 scRNA sequence
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "FigureS6/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+```
+
+```{r}
+scRNA <- readRDS("./data/input/scRNA_seq_for_drug_signature/drug_induced_sample_all_merged.RDS")
+sig <- read.csv("./data/input/scRNA_seq_for_drug_signature/preR_preS_drug_signature_all.csv")
+con_score <- list(
+  Carbo = read.csv("./data/input/scRNA_seq_for_drug_signature/Carbo_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  Olaparib = read.csv("./data/input/scRNA_seq_for_drug_signature/Olaparib_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  NK = read.csv("./data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
+  )
+```
+
+### UMAP
+
+```{r}
+scRNA$treatment <- gsub("_", " ", scRNA$treatment)
+
+Idents(scRNA) <- "treatment"
+colors <- c(
+  "DMSO" = "grey",
+  "Pevonedistat hydrochloride H" = "#00A087B2", 
+  "Pevonedistat hydrochloride L" = "#91D1C2B2",
+  
+  "Ixazomib citrate" = "#DC0000B2", # proteasome inhibitor
+  "Carfilzomib" = "#E64B35B2", # proteasome inhibitor
+  "Delanzomib" = "#F39B7FB2", # proteasome inhibitor
+  "Bortezomib" = "#EE6677B2", # proteasome inhibitor
+  "Pyrrolidinedithiocarbamate ammonium" = "#8491B4B2", 
+  "Sitagliptin" = "#AA4499B2",
+  
+  "Nocodazole" = "#7E6148B2",
+  "Clofarabine" = "#4DBBD5B2",
+  "GW843682X" = "#DDAA33B2"
+)
+levels(scRNA) <- c(
+  "DMSO", "Pevonedistat hydrochloride H", "Pevonedistat hydrochloride L",
+  "Ixazomib citrate", "Carfilzomib", "Delanzomib", "Bortezomib",
+  "Pyrrolidinedithiocarbamate ammonium", "Sitagliptin", "Nocodazole",
+  "Clofarabine", "GW843682X"
+)
+DimPlot(scRNA, reduction = "umap") +
+  scale_color_manual(values = colors)
+
+ggsave(paste0(sub_output_dir, "umap_all_drugs.pdf"), width = 6.5, height = 3)
+```
+```{r}
+treatments <- names(colors)[-1]
+for (t in treatments){
+  DimPlot(subset(scRNA, cells = colnames(scRNA)[scRNA$treatment %in% c("DMSO", t)]), reduction = "umap") +
+  scale_color_manual(values = colors) +
+    ggtitle(t) +
+    theme(
+      legend.position="none",
+      axis.ticks.x = element_blank(),
+      axis.text = element_text(size = 21, colour = "black"),
+      axis.title = element_text(size = 21, colour = "black"),
+      plot.title = element_text(size = 21, hjust = 0.5, colour = "black", face = "plain")
+    )
+   if (t == "Pevonedistat hydrochloride L"){
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO.pdf"), width = 4.5, height = 4.5)
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO.png"), width = 4.5, height = 4.5)
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO_supplement.pdf"), width = 5, height = 5)
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO_supplement.png"), width = 5, height = 5)
+   } else if (t == "Ixazomib citrate"| t == "GW843682X") {
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO.pdf"), width = 4.5, height = 4.5)
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO.png"), width = 4.5, height = 4.5)
+   } else {
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO.pdf"), width = 5, height = 5)
+    ggsave(paste0(sub_output_dir, "umap_", t, "_DMSO.png"), width = 5, height = 5)
+   }
+}
+```
+
+### Scatter plot
+
+```{r}
+combo <- data.frame(
+  drug1 = c(rep("Carbo", 2), rep("Olaparib", 8), rep("NK", 5)),
+  drug2 = c(
+    "Pevonedistat_hydrochloride_H",
+    "Pevonedistat_hydrochloride_L",
+    
+    "Pevonedistat_hydrochloride_H",
+    "Pevonedistat_hydrochloride_L",
+  "Ixazomib_citrate", "Carfilzomib", "Delanzomib", "Bortezomib",
+  "Pyrrolidinedithiocarbamate_ammonium", "Sitagliptin",
+  
+    "Pevonedistat_hydrochloride_H",
+    "Pevonedistat_hydrochloride_L",
+    "Nocodazole", "Clofarabine",
+    "GW843682X")
+)
+for (i in 1:nrow(combo)){
+  data_tmp <- sig[sig[[paste0(combo$drug1[i], "_boot_p")]] < 0.05, ]
+  plot_table <- data_tmp %>% 
+    dplyr::select(
+      preR = paste0(combo$drug1[i], "_log2FC_preR_preS_adj"),
+      drug = paste0(combo$drug2[i], "_DMSO_log2FC")
+    ) %>% 
+    na.omit()
+  
+  connect_score <- con_score[[combo$drug1[i]]] %>% 
+    filter(drug == combo$drug2[i]) %>% 
+    select(connectivity_score_log2FC_preR_preS_adj_boot_p) %>% 
+    unlist()
+  connect_p <- con_score[[combo$drug1[i]]] %>% 
+    filter(drug == combo$drug2[i]) %>% 
+    select(connectivity_p_log2FC_preR_preS_adj_boot_p) %>% 
+    unlist()
+  
+  range <- range(
+      plot_table
+  )
+  range_x <- range(plot_table$preR)
+  range_y <- range(plot_table$drug)
+  p <- ggplot(
+    data = plot_table,
+    aes(
+      x = preR,
+      y = drug
+    )
+    ) +
+    geom_point(
+      color = "#3C548855",
+      size = 5,
+      show.legend = FALSE
+    ) +
+    # ylim(range) +
+    # xlim(range) +
+    # geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = 0, linetype = "dashed") + 
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    annotate(
+      geom = "text",
+      x = range_x[2] - (range_x[2] - range_x[1]) * 0.4,
+      y = range_y[2] - (range_y[2] - range_y[1]) * 0.1,
+      label = paste0(
+        "Connectivity score = ", signif(connect_score, 2), "\n",
+        ifelse(
+          connect_p == 0, "P < 2.2E-16",
+          paste0("P =", format(connect_p, scientific = T))
+        )
+      ),
+      size = 5.5
+    ) + 
+    labs(
+      x = paste0(gsub("Carbo", "Carboplatin", combo$drug1[i]), " preR vs preS"),
+      y = paste0(gsub("_", " ", combo$drug2[i]), " vs DMSO")
+    ) +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      axis.ticks.x = element_blank(),
+      axis.text = element_text(size = 21, colour = "black"),
+      axis.title = element_text(size = 21, colour = "black"),
+      plot.title = element_text(size = 21, hjust = 0.5, colour = "black", face = "bold")
+    )
+  p
+  if (
+    (combo$drug1[i] == "Carbo" & combo$drug2[i] == "Pevonedistat_hydrochloride_L")|
+    (combo$drug1[i] == "Olaparib" & combo$drug2[i] == "Ixazomib_citrate")|
+    (combo$drug1[i] == "NK" & combo$drug2[i] == "GW843682X")) {
+    ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], ".png"), p,
+         width = 4.5, height = 4.5)
+  ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], ".pdf"), p,
+         width = 4.5, height = 4.5)
+  } else {
+        ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], ".png"), p,
+         width = 5, height = 5)
+  ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], ".pdf"), p,
+         width = 5, height = 5)
+  }
+  
+}
+```
+
+# Figure S7
+
+## A: COV362 survival plot
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "FigureS7/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+```
+
+```{r}
+data_clinical_patient = read.delim("./data/input/BRCAness/data_clinical_patient.txt", skip = 4)
+data_clinical_sample = read.delim("./data/input/BRCAness/data_clinical_sample.txt", skip = 4)
+data_mrna = readRDS("./data/input/BRCAness/EOC_deconv_TCGA_expr_mat.RDS")
+colnames(data_mrna) = gsub("\\.","\\-", colnames(data_mrna))
+colnames(data_mrna) = substr(colnames(data_mrna), 1, 15)
+data_mrna <- data_mrna[apply(data_mrna, 1, function(x){
+  sum(is.na(x))
+}) < 300, ]
+
+identical(data_clinical_patient$PATIENT_ID, data_clinical_sample$PATIENT_ID) # data aligned already
+table(data_clinical_sample$GRADE)
+high_grade = grepl("G2|G3|G4", data_clinical_sample$GRADE)
+
+data_clinical_sample = data_clinical_sample[high_grade, ]
+data_clinical_patient = data_clinical_patient[high_grade, ]
+
+patients = names(data_mrna) # 307 patients
+time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
+status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
+table(status, exclude = NULL)
+status[which(status == "")] = NA
+
+length(which(is.na(time)==F)) # 270 has survival
+length(which(is.na(status)==F)) # 271 has status
+cov362 <- read.csv("./data/input/BRCAness/deg_COV362.csv")
+```
+
+#### Test for good p value
+
+```{r}
+p_threshold = c(1*10^-(2:14), 5*10^-(2:14))
+fc_threshold = 0
+conserve_gene_only <- FALSE
+
+res <- mat.or.vec(length(p_threshold), 3)
+colnames(res) <- c("p_threshold", "n_gene", "survival_p")
+
+for (i in 1:length(p_threshold)){
+  data_mrna2 <- data_mrna
+  if (conserve_gene_only){
+    cov362_test <- filter(cov362, ensembl %in% sister_conserve_gene)
+  } else {
+    cov362_test <- cov362
+  }
+  res[i, 1] <- p_threshold[i]
+  
+  index1 = which(cov362_test$avg_log2FC <= -fc_threshold & cov362_test$p_val_adj <= p_threshold[i]) # downregulated genes when BRCA1 is knocked out (BRCA-)
+  index2 = which(cov362_test$avg_log2FC > fc_threshold & cov362_test$p_val_adj <= p_threshold[i]) # upregulated genes when BRCA1 is knocked out
+  index2_symbol = cov362_test$symbol[index2]
+  
+  index = c(index1, index2)
+  length(index)
+  cov362_test = cov362_test[index, ]
+  # cov362_test$symbol
+  
+  cov362_test = cov362_test[match(rownames(data_mrna2), cov362_test$symbol), ]
+  
+  res[i, 2] <- nrow(na.omit(cov362_test))
+  
+  # reverse index2 gene expressions
+  data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ] = -data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ]
+  
+  # gene selection
+  index = which(is.na(cov362_test$symbol) == F)
+  
+  res1 = c()
+  for (j in 1:length(patients)){
+    cat('\r', j)
+    res.tmp = rank(data_mrna2[, j], na.last = "keep") # min = r1, max = rmax
+    res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])) # rank of the BRCAness genes
+    # res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])*(-log10(cov362_test$p_val_adj[index]))) # rank of the BRCAness genes
+    
+  }
+  time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
+  status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
+  
+  group = ifelse(res1 > quantile(res1, 0.5), 1, 0) # lower rank survives better
+  data_plot = data.frame(time = time, status = as.numeric(as.factor(status)), group = group)
+  set.seed(123)
+  fit <- survfit(Surv(time, status) ~ group, data = data_plot)
+  fit.coxph = coxph(Surv(time, status) ~ group, data = data_plot)
+  s <- summary(fit.coxph)
+  res[i, 3] <- s$logtest[3]
+}
+
+write.csv(
+  res,
+  paste0(sub_output_dir, "FigureS7A_BRCA_survival_cov", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+#### Survival plot with selected parameters
+
+```{r}
+conserve_gene_only <- FALSE
+
+if (conserve_gene_only) {
+  p_threshold = 1*10^(-8)
+  fc_threshold = 0
+} else {
+  p_threshold = 1*10^(-8)
+  fc_threshold = 0
+}
+data_mrna2 <- data_mrna
+  
+if (conserve_gene_only){
+  cov362_test <- filter(cov362, ensembl %in% sister_conserve_gene)
+} else {
+  cov362_test <- cov362
+}
+
+index1 = which(cov362_test$avg_log2FC <= -fc_threshold & cov362_test$p_val_adj <= p_threshold) # downregulated genes when BRCA1 is knocked out (BRCA-)
+index2 = which(cov362_test$avg_log2FC > fc_threshold & cov362_test$p_val_adj <= p_threshold) # upregulated genes when BRCA1 is knocked out
+index2_symbol = cov362_test$symbol[index2]
+
+index = c(index1, index2)
+length(index)
+cov362_test = cov362_test[index, ]
+# cov362_test$symbol
+
+cov362_test = cov362_test[match(rownames(data_mrna2), cov362_test$symbol), ]
+
+# reverse index2 gene expressions
+data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ] = -data_mrna2[which(rownames(data_mrna2) %in% index2_symbol), ]
+
+# gene selection
+index = which(is.na(cov362_test$symbol) == F)
+
+res1 = c()
+for (j in 1:length(patients)){
+  cat('\r', j)
+  res.tmp = rank(data_mrna2[, j], na.last = "keep") # min = r1, max = rmax
+  res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])) # rank of the BRCAness genes
+  # res1[j] = weighted.mean(res.tmp[index], w = abs(cov362_test$avg_log2FC[index])*(-log10(cov362_test$p_val_adj[index]))) # rank of the BRCAness genes
+  
+}
+time = data_clinical_patient$OS_MONTHS[match(patients, data_clinical_sample$SAMPLE_ID)]
+status = data_clinical_patient$OS_STATUS[match(patients, data_clinical_sample$SAMPLE_ID)]
+
+group = ifelse(res1 > quantile(res1, 0.5), 1, 0) # lower rank survives better
+data_plot = data.frame(time = time, status = as.numeric(as.factor(status)), group = group)
+set.seed(123)
+fit <- survfit(Surv(time, status) ~ group, data = data_plot)
+fit.coxph = coxph(Surv(time, status) ~ group, data = data_plot)
+s <- summary(fit.coxph)
+# res[i, 3] <- s$logtest[3]
+  
+pdf(paste0(sub_output_dir,"FigureS7A_threshold_", p_threshold, ifelse(conserve_gene_only, "BRCA_COV_OS_conserve_gene.pdf", "BRCA_COV_OS.pdf")), width = 4, height = 5.5, pointsize = 20)
+fig <- ggsurvplot(
+  fit,
+  data = data_plot,
+  palette = c(red, blue),
+  risk.table = T,
+  legend.title = "HRD (COV362)", # - undeconvoluted",
+  legend.labs = c("high", "low"),
+  xlab = "Time (months)", ylab = "Overall survival",
+  ggtheme = theme_survminer(
+    base_size = 14,
+    font.main = c(14, "plain", "black"),
+    font.x = c(14, "plain", "black"),
+    font.y = c(14, "plain", "black"),
+    font.caption = c(14, "plain", "black"),
+    font.legend = c(14, "plain", "black"),
+    font.tickslab = c(14, "plain", "black"),
+    font.submain = c(14, "plain", "black")
+  ),
+  pval = signif(s$logtest[3], 2),
+  pval.coord = c(100, 0.75)
+  ) +
+  guides(colour = guide_legend(nrow = 2))
+fig
+dev.off()
+```
+
+## B: Bar plot for TCGA BRCAness signatute's log2FC
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "FigureS7/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+
+lseq <- function(from=1, to=100000, length.out=6) {
+  # logarithmic spaced sequence
+  # blatantly stolen from library("emdbook"), because need only this
+  exp(seq(log(from), log(to), length.out = length.out))
+}
+
+conserve_gene_only <- TRUE
+```
+
+```{r}
+data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
+```
+
+```{r}
+conserve_gene_only <- TRUE
+
+if (conserve_gene_only){
+  plot_table <- filter(log2FC_table, conserve_gene)
+} else {
+  plot_table <- log2FC_table
+}
+```
+
+```{r}
+selected_p_threshold <- 0.005
+
+table_tests <- plot_table %>% 
+  filter(BRCAness_tcga_p_adj <= selected_p_threshold) %>% 
+  select(ensembl, starts_with("BRCAness_tcga"), ends_with("log2FC_preR_preS_adj")) %>% 
+  na.omit() %>% 
+  arrange(BRCAness_tcga_logFC)
+
+# BRCAness
+pdf(
+  paste0(
+    sub_output_dir, "FigureS7B_BRCA_signature_tcga_p_", signif(selected_p_threshold, 2),
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  width = 8, height = 4, pointsize = 20
+)
+cor = ifelse(table_tests$BRCAness_tcga_logFC > 0, red, blue)
+fig = barplot(
+  table_tests$BRCAness_tcga_logFC,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = "BRCAness signature (TCGA)",
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
+
+# Olaparib
+r <- cor(
+  table_tests$BRCAness_tcga_logFC,
+  -table_tests$Olaparib_log2FC_preR_preS_adj,
+  method = "spearman", use = "complete"
+  )
+pdf(paste0(sub_output_dir,"FigureS7B_Olaparib_signature_tcga_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
+cor = ifelse(-table_tests$Olaparib_log2FC_preR_preS_adj > 0, red, blue)
+fig = barplot(
+  -table_tests$Olaparib_log2FC_preR_preS_adj,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = paste("Olaparib to TCGA, cor =", round(r,2)),
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
+
+# Carboplatin
+r <- cor(
+  table_tests$BRCAness_tcga_logFC,
+  -table_tests$Carbo_log2FC_preR_preS_adj,
+  method = "spearman", use = "complete"
+)
+pdf(paste0(sub_output_dir,"FigureS7B_Carboplatin_signature_tcga_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
+cor = ifelse(-table_tests$Carbo_log2FC_preR_preS_adj > 0, red, blue)
+fig = barplot(
+  -table_tests$Carbo_log2FC_preR_preS_adj,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = paste("Carboplatin to TCGA, cor =", round(r,2)),
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
+
+# NK
+r <- cor(
+  table_tests$BRCAness_tcga_logFC,
+  -table_tests$NK_log2FC_preR_preS_adj,
+  method = "spearman", use = "complete"
+  )
+pdf(paste0(sub_output_dir,"FigureS7B_NK_signature_tcga_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
+cor = ifelse(-table_tests$NK_log2FC_preR_preS_adj > 0, red, blue)
+fig = barplot(
+  -table_tests$NK_log2FC_preR_preS_adj,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = paste("NK to TCGA, cor =", round(r,2)),
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
+```
+
+## C: Bar plot for COV362 BRCAness signatute's log2FC
+
+```{r}
+selected_p_threshold <- 1 * 10^-8
+
+table_tests <- plot_table %>% 
+  filter(BRCAness_cov_p_adj <= selected_p_threshold) %>% 
+  select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS_adj")) %>% 
+  na.omit() %>% 
+  arrange(BRCAness_cov_logFC)
+
+# BRCAness
+pdf(
+  paste0(
+    sub_output_dir, "FigureS7C_BRCA_signature_cov_p_", signif(selected_p_threshold, 2),
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  width = 8, height = 4, pointsize = 20
+)
+cor = ifelse(table_tests$BRCAness_cov_logFC > 0, red, blue)
+fig = barplot(
+  table_tests$BRCAness_cov_logFC,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = "BRCAness signature (COV362)",
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
+
+# Olaparib
+r <- cor(table_tests$BRCAness_cov_logFC, -table_tests$Olaparib_log2FC_preR_preS_adj)
+pdf(paste0(sub_output_dir,"FigureS7C_Olaparib_signature_cov_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
+cor = ifelse(-table_tests$Olaparib_log2FC_preR_preS_adj > 0, red, blue)
+fig = barplot(
+  -table_tests$Olaparib_log2FC_preR_preS_adj,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = paste("Olaparib to COV362, cor =", round(r,2)),
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
+
+# Carboplatin
+r <- cor(table_tests$BRCAness_cov_logFC, -table_tests$Carbo_log2FC_preR_preS_adj)
+pdf(paste0(sub_output_dir,"FigureS7C_Carboplatin_signature_cov_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
+cor = ifelse(-table_tests$Carbo_log2FC_preR_preS_adj > 0, red, blue)
+fig = barplot(
+  -table_tests$Carbo_log2FC_preR_preS_adj,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = paste("Carboplatin to COV362, cor =", round(r,2)),
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
+
+# NK
+r <- cor(table_tests$BRCAness_cov_logFC, -table_tests$NK_log2FC_preR_preS_adj)
+pdf(paste0(sub_output_dir,"FigureS7C_NK_signature_cov_p_", signif(selected_p_threshold, 2) , ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")), width = 8, height = 4, pointsize = 20)
+cor = ifelse(-table_tests$NK_log2FC_preR_preS_adj > 0, red, blue)
+fig = barplot(
+  -table_tests$NK_log2FC_preR_preS_adj,
+  names.arg = table_tests$ensembl,
+  las = 2,
+  main = paste("NK to COV362, cor =", round(r,2)),
+  cex.names = 1,
+  col = cor,
+  ylab = 'FC',
+  xaxt = "n",
+  border = NA,
+  space = 0
+)
+dev.off()
 ```
 
 # test
@@ -8348,7 +8929,7 @@ fit.coxph = coxph(Surv(time, status) ~ group, data = data_plot)
 s <- summary(fit.coxph)
 # res[i, 3] <- s$logtest[3]
   
-pdf(paste0(sub_output_dir,"FigureS6A_threshold_", p_threshold, ifelse(conserve_gene_only, "BRCA_COV_OS_conserve_gene.pdf", "BRCA_COV_OS.pdf")), width = 4, height = 5.5, pointsize = 20)
+pdf(paste0(sub_output_dir,"FigureS7A_threshold_", p_threshold, ifelse(conserve_gene_only, "BRCA_COV_OS_conserve_gene.pdf", "BRCA_COV_OS.pdf")), width = 4, height = 5.5, pointsize = 20)
 fig <- ggsurvplot(
   fit,
   data = data_plot,
