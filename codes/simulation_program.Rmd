@@ -1,5 +1,5 @@
 ---
-title: "Simulation of ReSisTrace experiment"
+title: "Simulation for ReSisTrace experiment"
 output: html_notebook
 author: "Shuyu Zheng"
 date: "`r Sys.Date()`"
@@ -25,6 +25,11 @@ brown2 <- "#7E6148FF"
 
 blue3 <- "#8491B4FF"
 red3 <- "#F39B7FFF"
+
+output_dir <- "./data/output/simulation/"
+if (!dir.exists(output_dir)){
+  dir.create(output_dir)
+}
 ```
 
 # Parameters from KURAMOCHI experiment
@@ -40,13 +45,6 @@ red3 <- "#F39B7FFF"
 ```{r}
 table <- read.csv("./data/output/FigureS1/FigureS1A_cell_division_times.csv")
 table
-```
-
-```{r}
-output_dir <- "./data/output/simulation/"
-if (!dir.exists(output_dir)){
-  dir.create(output_dir)
-}
 ```
 
 ## Parameters from sequencing data:
@@ -111,10 +109,14 @@ write.csv(cell_counts, paste0(output_dir, "cell_counts_for_each_treatment_sample
 ```
 
 ```{r}
-cell_counts <- read.csv(paste0(output_dir, "cell_counts_for_each_treatment_samples.csv"))
+cell_counts <- read.csv(paste0(output_dir, "cell_counts_for_each_treatment_samples.csv")) %>% 
+  select(-sample) %>% 
+  group_by(treatment, time_point) %>% 
+  summarise(n_cell = round(mean(n_cell)), .groups = "keep")
+
 ```
 
-# Define the simulation function
+# Definition of the simulation function
 
 ```{r}
 ReSisTraceSimulation <- function(
@@ -516,17 +518,15 @@ KillRateTotal <- seq(0.7, 0.8, by = 0.01)
 ```{r include=FALSE}
 treatments <- unique(cell_counts$treatment)
 treatments <- treatments[treatments != "ctrl"]
-samples <- unique(cell_counts$sample)
 res <- NULL
 for (i in 1:length(KillRateTotal)) {
-  for (s in samples) {
-    t <- gsub("\\_\\d", "", s)
+  for (t in treatments) {
     tmp <- ReSisTraceSimulation(
       Niter = Niter,
       SampleSize = SampleSize,
       LineagePropAfterDoubling = LineagePropAfterDoubling,
-      NCellBT = round(cell_counts$n_cell[cell_counts$sample == s & cell_counts$time_point == "BeforeTreatment_no_qc"]),
-      NCellAT = round(cell_counts$n_cell[cell_counts$sample == s & cell_counts$time_point == "AfterTreatment_no_qc"]),
+      NCellBT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "BeforeTreatment_no_qc"]),
+      NCellAT = round(cell_counts$n_cell[cell_counts$treatment == t & cell_counts$time_point == "AfterTreatment_no_qc"]),
       KillRateTotal = KillRateTotal[i],
       NCellPreSeq = round(cellSeq_numers$NCellPreSeq[cellSeq_numers$treatment == t]),
       NCellSeq = round(cellSeq_numers$NCellSeq[cellSeq_numers$treatment == t]),
@@ -539,7 +539,6 @@ for (i in 1:length(KillRateTotal)) {
     sd <- as.data.frame(t(sd))
     colnames(sd) <- paste0(colnames(sd), "_sd")
     df <- data.frame(
-      sample = s, 
       treatment = t,
       KillRateTotal = KillRateTotal[i]
     )
@@ -652,7 +651,7 @@ for (i in 1:length(KillRateTotal)) {
 ```
 
 ```{r}
-write.csv(res, paste0(output_dir, "simulation_results_perfect_doubling.csv"), row.names = FALSE)
+write.csv(res, './data/output/simulation/simulation_results_perfect_doubling.csv', row.names = FALSE)
 ```
 
 ### Visualization
@@ -808,7 +807,7 @@ for (i in 1:length(KillRateTotal)) {
 write.csv(res, paste0(output_dir, "simulation_results_no_drop_out.csv"), row.names = FALSE)
 ```
 
-# Line plot
+# Line plots in the manuscript
 
 ```{r}
 ideal_condition <- read.csv(paste0(output_dir, "simulation_results_perfect_doubling_no_drop_out.csv"))
@@ -837,12 +836,12 @@ for (m in metrics) {
         color = treatment
       )
     ) + 
-    geom_line() +
+    geom_line(linewidth = 2) +
     # geom_point() +
-    geom_errorbar(
-      aes(ymin = mean - sd, ymax = mean + sd), width=.3,
-      position=position_dodge(0.05)
-    ) +
+    # geom_errorbar(
+    #   aes(ymin = mean - sd, ymax = mean + sd), width=.3,
+    #   position=position_dodge(0.05)
+    # ) +
     theme_classic() + 
     theme(
       text = element_text(size = 21),
@@ -858,7 +857,7 @@ for (m in metrics) {
       color = ""
     )
   # ggsave(paste0(output_dir, m, "_lineage_count.pdf"), p, width = 6, height = 3)
-  ggsave(paste0(output_dir, m, "_lineage_count.pdf"), p, width = 7, height = 4)
+  ggsave(paste0(output_dir, m, "_lineage_count.pdf"), p, width = 9, height = 6)
   
   tmp <- plot_table %>% 
     select(KillRateTotal, treatment, mean = paste0(m, "Cell_mean"), sd = paste0(m, "Cell_sd"))
@@ -894,7 +893,7 @@ for (m in metrics) {
       color = ""
     )
   # ggsave(paste0(output_dir, m, "_cell_count.pdf"), p, width = 6, height = 3)
-  ggsave(paste0(output_dir, m, "_cell_count.pdf"), p, width = 7, height = 4)
+  ggsave(paste0(output_dir, m, "_cell_count.pdf"), p, width = 10, height = 7)
   
   tmp <- plot_table %>% 
     select(KillRateTotal, treatment, mean = paste0(m, "Singleton_mean"), sd = paste0(m, "Singleton_sd"))
@@ -968,45 +967,4 @@ for (m in metrics) {
   # ggsave(paste0(output_dir, m, "_cell_count_singleton.pdf"), p, width = 6, height = 3)
   ggsave(paste0(output_dir, m, "_cell_count_singleton.pdf"), p, width = 7, height = 4)
 }
-```
-```{r}
-p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVCell_mean * 100, group=treatment, color=treatment)) + 
-  geom_line() +
-  geom_point() +
-  theme_bw() + 
-  theme(
-    text = element_text(size = 20),
-    axis.title = element_text(size = 20, color = "black"),
-    axis.text = element_text(size = 20, color = "black"),
-    legend.text = element_text(size = 20, color = "black")
-  ) +
-  scale_color_manual(values = c(blue, red, brown, "#000000")) +
-  ylim(c(0, 100)) +
-  labs(
-    title = "Cell count",
-    x = "Killing rate",
-    y = "Negative predictive value",
-    color = "")
-p
-```
-
-```{r}
-p<- ggplot(plot_table, aes(x=KillRateTotal, y=NPVSingleton_mean * 100, group=treatment, color=treatment)) + 
-  geom_line() +
-  geom_point() +
-  theme_bw() + 
-  theme(
-    text = element_text(size = 20),
-    axis.title = element_text(size = 20, color = "black"),
-    axis.text = element_text(size = 20, color = "black"),
-    legend.text = element_text(size = 20, color = "black")
-  ) +
-  scale_color_manual(values = c(blue, red, brown, "#000000")) +
-  ylim(c(0, 100)) +
-  labs(
-    title = "Lineage count (only singletons)",
-    x = "Killing rate",
-    y = "Negative predictive value",
-    color = "")
-p
 ```

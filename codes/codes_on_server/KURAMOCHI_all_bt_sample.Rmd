@@ -1,0 +1,527 @@
+---
+title: "All before treatment samples"
+author: "Shuyu Zheng"
+date: "`r Sys.Date()`"
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+```{r include=FALSE}
+library(Seurat)
+library(ggpubr)
+library(tidyverse)
+library(wordspace)
+options(bitmapType='cairo')
+output_dir <- "../data/output/KURAMOCHI_before_treatment/"
+if (!dir.exists(output_dir)){
+  dir.create(output_dir, recursive = TRUE)
+}
+```
+
+The input data of this section is the Seurat object for **before treatment sample from all experiments** after quality control and normalization. It is one of the "Preprocess_xx.Rmd" outputs.
+
+# 1. All BT samples
+
+## 1. Load data
+
+```{r eval = FALSE}
+merge <- NULL
+gene_meta <- NULL
+for (i in c("NK1", "NK2", "Carbo1", "Carbo2", "Olaparib1", "Olaparib2", "ctrl1", "ctrl2")){
+  tmp <- readRDS(paste0("../data/raw/ReSisTrace_KURAMOCHI_samples/", i, ".RDS"))
+  tmp$sample <- rep(i, nrow(tmp@meta.data))
+  tmp <- RenameCells(tmp, add.cell.id = i)
+  gene_meta <- gene_meta %>%
+    rbind.data.frame(tmp@misc$gene_meta) %>%
+    unique()
+  if (is.null(merge)){
+    merge <- tmp
+  } else {
+    merge <- merge(merge, tmp)
+  }
+}
+merge@misc$gene_meta <- gene_meta
+```
+
+## 2. Filter genes lower expressed
+
+Set filtering threshold
+
+```{r}
+cutoff_quantile <- 0.1 # 10% quantile for sum expression across all bt samples
+exp_sum <- Matrix::rowSums(merge@assays$RNA@data)
+exp_mean <- Matrix::rowMeans(merge@assays$RNA@data)
+low_exp_genes <- names(exp_sum[exp_sum < quantile(exp_sum, cutoff_quantile)])
+
+cat("With the quantile:", cutoff_quantile * 100, "%.",
+    "The cutoff of expression (normalized) is ",
+    quantile(exp_sum, cutoff_quantile),
+    ". There are ", length(low_exp_genes),
+    "genes out of", nrow(merge), "will be reomved.")
+```
+
+```{r}
+write.csv(
+  data.frame(
+    gene = low_exp_genes, 
+    sum_expression = exp_sum[exp_sum < quantile(exp_sum, cutoff_quantile)],
+    stringsAsFactors = FALSE
+  ),
+  paste0(output_dir, "filtered_low_exp_genes.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  data.frame(
+    gene = names(exp_sum), 
+    sum_expression = exp_sum,
+    mean_expression = exp_mean,
+    stringsAsFactors = FALSE
+  ),
+  paste0(output_dir, "genes_exp_sum_across_bt.csv"),
+  row.names = FALSE
+)
+```
+
+Filter the low expressed genes
+
+```{r}
+merge <- subset(merge, features = rownames(merge)[!rownames(merge) %in% low_exp_genes])
+```
+
+## 3. Calculate
+
+```{r}
+merge <- FindVariableFeatures(merge)
+merge <- ScaleData(merge)
+merge <- RunPCA(merge, veverbose = FALSE)
+merge <- RunUMAP(merge, dims = 1:20, veverbose = FALSE)
+merge <- RunTSNE(merge, dims = 1:20, veverbose = FALSE)
+```
+
+```{r}
+Idents(merge) <- "sample"
+pca <- PCAPlot(merge)
+umap <- UMAPPlot(merge)
+tsne <- TSNEPlot(merge)
+pca
+umap
+tsne
+```
+```{r}
+ggsave(paste0(output_dir, "/all_bt_sample_filter_gene_pca.pdf"), plot = pca, device = "pdf")
+ggsave(paste0(output_dir, "/all_bt_sample_filter_gene_umap.pdf"), plot = umap, device = "pdf")
+ggsave(paste0(output_dir, "/all_bt_sample_filter_gene_tsne.pdf"), plot = tsne, device = "pdf")
+```
+
+```{r}
+saveRDS(merge, file = paste0(output_dir, "/all_bt_sample_merge_filtered_gene.RDS"))
+```
+```{r eval=FALSE}
+merge <- readRDS(paste0(output_dir, "/all_bt_sample_merge_filtered_gene.RDS"))
+```
+```{r}
+merge$treatment <- sub("_.", "", merge$sample)
+pca <- PCAPlot(subset(merge, cells = colnames(merge)[!is.na(merge$drugSens)]), split.by = "drugSens", group.by = "treatment")
+umap <- UMAPPlot(subset(merge, cells = colnames(merge)[!is.na(merge$drugSens)]), split.by = "drugSens", group.by = "treatment")
+tsne <- TSNEPlot(subset(merge, cells = colnames(merge)[!is.na(merge$drugSens)]), split.by = "drugSens", group.by = "treatment")
+pca
+umap
+tsne
+```
+
+```{r}
+ggsave(paste0(output_dir, "/all_bt_sample_filter_gene_split_by_drugSens_pca.pdf"), plot = pca, device = "pdf")
+ggsave(paste0(output_dir, "/all_bt_sample_filter_gene_split_by_drugSens_umap.pdf"), plot = umap, device = "pdf")
+ggsave(paste0(output_dir, "/all_bt_sample_filter_gene_split_by_drugSens_tsne.pdf"), plot = tsne, device = "pdf")
+```
+# 2. Sister Similarity
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "merge")))
+source("./auxiliary_codes.R")
+```
+
+## 1. Without filtering sisters
+### 1. Plot random sisters
+
+Relabel sisters with the info of sample
+```{r}
+merge$sisters_sample <- paste(merge$sample, merge$sisters, sep = "_")
+```
+
+```{r}
+all_sister_pairs <- merge$sisters_sample[!endsWith(merge$sisters_sample, "NA")]
+all_sister_pairs <- unique(all_sister_pairs)
+cat("There are totally", length(all_sister_pairs),
+    "unique sisterhoods across all BT samples")
+```
+
+Randomly picking 20 sister groups to plot
+
+```{r}
+set.seed(1)
+n <- 10
+groups <- sample(all_sister_pairs, n)
+highlight_group <- vector("list", length(groups))
+names(highlight_group) <- groups
+for (i in groups){
+  highlight_group[[i]] <- colnames(merge)[which(merge$sisters_sample == i)]
+}
+
+# myCol <- ggsci::pal_aaas()(n)
+myCol <- c('#88CCEE', '#44AA99', '#117733', '#332288', '#DDCC77',
+           '#999933', '#CC6677', '#882255', '#AA4499', "#000000")
+names(myCol) <- groups
+pca <- PCAPlot(merge, cells.highlight = highlight_group,
+               cols.highlight = myCol[groups], sizes.highlight = 4) + NoLegend()
+
+
+umap <- UMAPPlot(merge, cells.highlight = highlight_group,
+               cols.highlight = myCol[groups], sizes.highlight = 4) + NoLegend()
+
+tsne <- TSNEPlot(merge, cells.highlight = highlight_group,
+               cols.highlight = myCol[groups], sizes.highlight = 4) + NoLegend()
+
+pca
+umap
+tsne
+```
+
+```{r}
+  ggsave(paste0(output_dir, "/highlight_sister_group_",paste0(groups, collapse = "."), "_pca.pdf"), plot = pca, device = "pdf")
+  ggsave(paste0(output_dir, "/highlight_sister_group_",paste0(groups, collapse = "."), "_umap.pdf"), plot = umap, device = "pdf")
+  ggsave(paste0(output_dir, "/highlight_sister_group_",paste0(groups, collapse = "."), "_tsne.pdf"), plot = tsne, device = "pdf")
+```
+
+### 2. Similarity analysis
+
+1. Prepare expression matrix
+
+```{r}
+expression_mat <- as.matrix(GetAssayData(merge, slot = "data"))
+```
+
+2. Prepare sister table (including all sisters)
+
+```{r}
+sister_table <- data.frame(cell_barcode = colnames(merge), 
+                     sisters = merge$sisters_sample,
+                     stringsAsFactors = FALSE) %>% 
+  dplyr::filter(sisters %in% all_sister_pairs) # remove singletons
+
+sisters <- NULL
+for (i in unique(sister_table$sisters)) {
+  tmp_set <- sister_table$cell_barcode[which(sister_table$sisters  == i)]
+  tmp_set <- combn(tmp_set, 2)
+  tmp_df <- data.frame(group = rep(i, ncol(tmp_set)),
+                       sister1 = tmp_set[1, ],
+                       sister2 = tmp_set[2, ],
+                       stringsAsFactors = FALSE)
+  sisters <- rbind.data.frame(sisters, tmp_df)
+  tmp_df <- NULL
+  tmp_set <- NULL
+}
+```
+
+```{r}
+rm(merge) # remove large seurat object to release memory
+rm(pca, tsne, umap)
+```
+
+3. Statistic analysis 
+
+We can use function `CalculateSisterSimilarity` (defined in 'script/Auxiliary_codes.R" file) to generate analysis sister similarities by setting the parameters:
+
+* **expression_mat**: the gene expression matrix in log2(normalized_count + 1) scale containing gene names as rows and cell barcodes as columns.
+* **n_gene**: number of top variable genes used to calculate the similarity.
+* **sister_table**: a data frame containing the group number of sister lineages and corresponding sisters' cell barcodes.
+
+Following is an example using Euclidean distance and top 1000 variable genes.
+
+1. Calculate difference matrix
+
+**Note** This function will take a long time to calculate the difference matrix. Some times it takes hours when there are a lot genes and cells.
+
+```{r}
+# time_stamp <- Sys.time()
+plot_data <- CalculateSisterSimilarity(
+  expression_mat = expression_mat,
+  n_gene = 1000,
+  sister_table = sisters,
+  similarity = "euclidean"
+  )
+# Sys.time() - time_stamp
+
+write_rds(plot_data, paste0(output_dir, "/sister_distance.RDS"))
+```
+
+t-test
+
+```{r}
+plot_data <- read_rds(paste0(output_dir, "/sister_distance.RDS"))
+```
+
+```{r}
+sister_d <- data.frame(
+    sister_id = names(plot_data$sister_distance),
+    distance = plot_data$sister_distance,
+    stringsAsFactors = FALSE
+    )
+write.csv(
+  sister_d,
+  paste0(output_dir, "/sister_distance.csv"), row.names = FALSE)
+```
+
+```{r}
+rm(expression_mat)
+```
+
+## 2. Filter sisters far away to each other
+
+```{r}
+table(table(sister_d$sister_id))
+```
+
+```{r}
+cutoff_quantile <- 0.9 # 90% quantile for sister distance across all bt samples
+cutoff <- quantile(sister_d$distance, cutoff_quantile)
+false_sisters <- unique(sister_d$sister_id[sister_d$distance > cutoff])
+
+sister_d$true_sisters <- !sister_d$sister_id %in% false_sisters
+cat("With the quantile:", cutoff_quantile * 100, "%.",
+    "The cutoff of distance is",
+    quantile(sister_d$distance, cutoff_quantile),
+    ". There are", length(false_sisters),
+    "sisterhoods out of", length(unique(sister_d$sister_id)), "will be reomved.")
+```
+
+```{r}
+table(table(sister_d$sister_id[which(sister_d$true_sisters)]))
+table(table(sister_d$sister_id[which(!sister_d$true_sisters)]))
+```
+
+### 1. Plot random sisters
+
+Relabel sisters with the info of sample
+
+```{r}
+merge <- readRDS(paste0(output_dir, "/all_bt_sample_merge_filtered_gene.RDS"))
+merge$sisters_sample <- paste(merge$sample, merge$sisters, sep = "_")
+# filter out false sisters
+merge$true_sister <- !merge$sisters_sample %in% false_sisters & !is.na(merge$sisters)
+merge$sisters_sample[which(merge$sisters_sample %in% false_sisters)] <- paste0(
+  merge$sisters_sample[which(merge$sisters_sample %in% false_sisters)],
+  "_NA"
+)
+```
+
+```{r}
+all_sister_pairs <- unique(merge$sisters_sample[merge$true_sister])
+cat("There are totally", length(all_sister_pairs),
+    "unique sisterhoods across all BT samples after filtering.")
+```
+
+```{r}
+saveRDS(merge, file = paste0(output_dir, "/all_bt_sample_merge_filtered_gene_sisters.RDS"))
+```
+
+Randomly picking 20 sister groups to plot
+
+```{r}
+set.seed(1)
+n <- 10
+groups <- sample(all_sister_pairs, n)
+highlight_group <- vector("list", length(groups))
+names(highlight_group) <- groups
+for (i in groups){
+  highlight_group[[i]] <- colnames(merge)[which(merge$sisters_sample == i)]
+}
+
+# myCol <- ggsci::pal_aaas()(n)
+myCol <- c('#88CCEE', '#44AA99', '#117733', '#332288', '#DDCC77',
+           '#999933', '#CC6677', '#882255', '#AA4499', "#000000")
+names(myCol) <- groups
+pca <- PCAPlot(merge, cells.highlight = highlight_group,
+               cols.highlight = myCol[groups], sizes.highlight = 4) + NoLegend()
+
+
+umap <- UMAPPlot(merge, cells.highlight = highlight_group,
+               cols.highlight = myCol[groups], sizes.highlight = 4) + NoLegend()
+
+tsne <- TSNEPlot(merge, cells.highlight = highlight_group,
+               cols.highlight = myCol[groups], sizes.highlight = 4) + NoLegend()
+
+pca
+umap
+tsne
+```
+
+```{r}
+  ggsave(paste0(output_dir, "/highlight_sister_group_",paste0(groups, collapse = "."), "_filtered_sisters_pca.pdf"), plot = pca, device = "pdf", width = 7)
+  ggsave(paste0(output_dir, "/highlight_sister_group_",paste0(groups, collapse = "."), "_filtered_sisters_umap.pdf"), plot = umap, device = "pdf", width = 7)
+  ggsave(paste0(output_dir, "/highlight_sister_group_",paste0(groups, collapse = "."), "_filtered_sisters_tsne.pdf"), plot = tsne, device = "pdf", width = 7)
+```
+
+```{r}
+rm(list = ls())
+```
+
+# 3. Cell cycle of all BT samples
+
+```{r}
+output.dir <- "../data/output/KURAMOCHI_before_treatment/cell_cycle/"
+
+if (!dir.exists(output.dir)) {
+  dir.create(output.dir)
+}
+
+# Load data
+
+merge <- readRDS("../data/output/KURAMOCHI_before_treatment/all_bt_sample_merge_filtered_gene_sisters.RDS")
+merge <- NormalizeData(merge)
+merge <- FindVariableFeatures(merge)
+merge <- ScaleData(merge, features = rownames(merge))
+merge <- RunPCA(merge)
+
+# Cell cycle scoring
+
+# A list of cell cycle markers, from Tirosh et al, 2015, is loaded with Seurat. We can
+# segregate this list into markers of G2/M phase and markers of S phase
+s.genes <- merge@misc$gene_meta$ensembl[which(merge@misc$gene_meta$symbol %in% cc.genes$s.genes)]
+g2m.genes <- merge@misc$gene_meta$ensembl[which(merge@misc$gene_meta$symbol %in% cc.genes$g2m.genes)]
+merge <- CellCycleScoring(merge, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+merge <- RunPCA(merge, features = c(s.genes, g2m.genes))
+```
+```{r}
+DimPlot(merge)
+ggsave(paste0(output.dir, "all_bt_cell_cycle.png"))
+
+DimPlot(merge, split.by = "sample")
+ggsave(paste0(output.dir, "all_bt_cell_cycle_split_by_sample.png"),
+       width = 20)
+
+samples <- c("NK1", "NK2", "Carbo1", "Carbo2", "Olaparib1", "Olaparib2")
+plots <- list()
+for (s in samples) {
+  tmp <- subset(
+    merge,
+    cells = rownames(merge@meta.data)[merge$sample == s]
+  )
+  DimPlot(
+    tmp,
+    split.by = "drugSens",
+    group.by = "Phase"
+  ) +
+    labs(
+      title = s
+    )
+  ggsave(
+    paste0(output.dir, s, "_bt_cell_cycle_split_by_drug_sensitivity.png"),
+    width = 10, height = 5)
+  
+  plots[[s]] <- ggplot(
+    tmp@meta.data %>% 
+      rownames_to_column("id"),
+    aes(fill=Phase, x=drugSens)
+  ) + 
+    geom_bar(position="fill", stat = "count") +
+    labs(
+      title = s,
+      y = "Proportion",
+      x = ""
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(hjust = 0.5)
+    )
+}
+p <- ggarrange(plotlist = plots, ncol = 2, nrow = 3)
+ggsave(
+  paste0(output.dir, "cell_cyle_drug_sensitivity_proportion.png"),
+  p, width = 10, height = 12)
+
+# Validated genes
+
+validated_genes <- merge@misc$gene_meta[which(
+  merge@misc$gene_meta$symbol %in% c(
+    "HMGB1", "PRKDC", "XRCC5", "HNRNPA1", "NPM1", "HNRNPA3", "MT-CO1", "MT-CO3",
+  "MT-ND1", "MT-RNR2", "MDK", "FIS1")),]
+
+plots <- list()
+for (i in 1:nrow(validated_genes)) {
+  plots[[i]] <- RidgePlot(
+    merge,
+    features = validated_genes$ensembl[i],
+  ) +
+    ggtitle(validated_genes$symbol[i]) +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      axis.title.y = element_blank()
+    ) +
+    NoLegend()
+}
+
+p <- ggarrange(plotlist = plots, ncol = 2, nrow = 6)
+ggsave(paste0(output.dir, "validated_genes_expression_distribution.png"),
+       width = 10, height = 15)
+```
+
+# 4. (Batch job) DEG Pre-resistant VS Pre-sensitive
+
+The DEGs are calculated via batch job in 4 different settings:
+
+# 5. (Batch job) Sister conserve genes
+
+This part is calculated with batch job. The codes are in: "./calculate_conserve_gene.R" and "./calculate_conserve_gene.sh"
+
+# 6. scVelo
+
+prepare files required by python code
+
+```{r}
+rm(list = ls())
+library(Seurat)
+options(bitmapType='cairo')
+output_dir <- "../data/output/scvelo/"
+if (!dir.exists(output_dir)){
+  dir.create(output_dir, recursive = TRUE)
+}
+merge <- readRDS("../data/output/KURAMOCHI_before_treatment/all_bt_sample_merge_filtered_gene_sisters.RDS")
+```
+
+```{r}
+cells = colnames(merge)
+cells <- sub("-1", "", cells)
+cells <- sub("BT_", "", cells)
+cells <- sub("_", ":", cells)
+cells <- sub("_", "-", cells)
+write.csv(cells, paste0(output_dir, "cells.csv"), row.names = FALSE)
+genes <- rownames(merge)
+write.csv(genes, paste0(output_dir, "genes.csv"), row.names = FALSE)
+
+# Sister cell
+sisters <- data.frame(sisters = merge$sisters,
+                      cell = cells,
+                      stringsAsFactors = FALSE)
+sisters$sisters[is.na(sisters$sisters)] <- 0
+write.csv(sisters, paste0(output_dir, "sisters.csv"), row.names = FALSE)
+# Drug sensitive
+sen <- data.frame(drugSens = paste(merge$sample, merge$drugSens),
+                  cell = cells,
+                  stringsAsFactors = FALSE)
+sen$drugSens <- gsub("NA", "no label", sen$drugSens)
+write.csv(sen, paste0(output_dir, "DrugSens.csv"), row.names = FALSE)
+
+write.csv(merge@misc$gene_meta, paste0(output_dir, "gene_meta.csv"), row.names = FALSE)
+```
+
+RNA velocity analysis was run on cluster server. The scripts are "runscvelo.py", "runscvelo.sh"
+
+```{r}
+sessionInfo()
+```

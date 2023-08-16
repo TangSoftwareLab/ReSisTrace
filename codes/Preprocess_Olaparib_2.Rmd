@@ -1,0 +1,959 @@
+---
+title: "Quality Control for OV cancer cell line samples"
+author: "Shuyu Zheng"
+date: "`r Sys.Date()`"
+output:
+  html_notebook:
+    toc: true
+    depth: 3
+    theme: united
+---
+
+```{r message=FALSE,echo=FALSE}
+library(Seurat)
+library(tidyverse)
+library(VennDiagram)
+library(grid)
+library(gridExtra)
+library(ggplot2)
+library(ggpubr)
+library(ggrepel)
+library(RColorBrewer)
+source("../script/auxiliary_codes.R")
+# A function to plot VennDiagram output in rmarkdown notebook
+futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
+print.ggExtraPlot <- function(x, newpage = is.null(vp), vp = NULL,...) {
+  if (newpage) grid::grid.newpage()
+  grid::grid.draw(x)
+}
+```
+
+# 1. Load data
+
+**Please Change the input file path and output directory in following code chunk.**
+```{r}
+bt_sample_path <- "../data/raw/transcriptome/scLT-2-pre-Olaparib-2/"
+at_sample_path <- "../data/raw/transcriptome/scLT-2-post-Olaparib-2/"
+bt_label_path <- "../data/raw/lineage_label/all_samples/scLT-2-pre-Olaparib-2/adjusted_sequence_count_df.csv"
+at_label_path <- "../data/raw/lineage_label/all_samples/scLT-2-post-Olaparib-2/adjusted_sequence_count_df.csv"
+
+# # PCR amplified lineage labels
+# bt_label_cDNA_path <- "../data/raw/lineage_label/all_samples/LBC-scLT-1-cDNA/adjusted_sequence_count_df.csv"
+# bt_label_Library_path <- "../data/raw/lineage_label/all_samples/LBC-scLT-1-Library/adjusted_sequence_count_df.csv"
+# at_label_cDNA_path <- "../data/raw/lineage_label/all_samples/LBC-scLT-5-cDNA/adjusted_sequence_count_df.csv"
+# at_label_Library_path <- "../data/raw/lineage_label/all_samples/LBC-scLT-5-Library/adjusted_sequence_count_df.csv"
+
+output_dir <- "../data/output/Olaparib_2/preprocess"
+if (!dir.exists(output_dir)){
+  dir.create(output_dir, recursive = TRUE)
+}
+```
+
+Load _before treatment sample_ gene expression matrix
+```{r}
+# load count data
+bt.data <- Read10X(bt_sample_path, gene.column = 1) # Use Ensembl ID as the row names
+bt <- CreateSeuratObject(counts = bt.data, project = "BeforeTreatment", min.cells = 3) # remove genes expressed in less than 3 cells
+bt <- subset(bt, features = rownames(bt)[which(rownames(bt) != "lineage-label")]) # remove fake gene for lineage label
+
+# add gene ID symbol exchange table to "misc" slot
+bt_genes <- read.table(paste0(bt_sample_path,"/features.tsv.gz"), stringsAsFactors = FALSE) %>% 
+  select(1, 2) %>% 
+  rename(ensembl = V1, symbol = V2)
+bt_genes$ensembl <- sub("_", "-", bt_genes$ensembl)
+bt@misc[['gene_meta']] <- bt_genes
+bt
+```
+
+Load _after treatment sample_ gene expression matrix
+```{r}
+# load count data
+at.data <- Read10X(at_sample_path, gene.column = 1)
+at <- CreateSeuratObject(counts = at.data, project = "AfterTreatment", min.cells = 3) # remove genes expressed in less than 3 cells
+at <- subset(at, features = rownames(at)[which(rownames(at) != "lineage-label")]) # remove fake gene for lineage label
+# add gene ID symbol exchange table to "misc" slot
+at_genes <- read.table(paste0(at_sample_path,"/features.tsv.gz"), stringsAsFactors = FALSE) %>% 
+  select(1, 2) %>% 
+  rename(ensembl = V1, symbol = V2)
+at_genes$ensembl <- sub("_", "-", at_genes$ensembl)
+at@misc[['gene_meta']] <- at_genes
+at
+```
+
+# 2. Quality control
+
+## 1. Visualize the QC for origin datasets
+
+### Before Treatment sample
+```{r}
+bt[["percent.mt"]] <- PercentageFeatureSet(bt, features = bt@misc[['gene_meta']]$ensembl[grepl("^MT-", bt@misc[['gene_meta']]$symbol)])
+p1 <- VlnPlot(bt, features = c("nFeature_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p2 <- VlnPlot(bt, features = c("nCount_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p3 <- VlnPlot(bt, features = c("percent.mt")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend()
+p1 + p2 + p3 + patchwork::plot_layout(nrow = 1, ncol = 3)
+FeatureScatter(bt, feature1 = "nCount_RNA", feature2 = "percent.mt") + 
+  theme(plot.title = element_blank()) + 
+  NoLegend()
+```
+
+### After Treatment sample
+```{r}
+at[["percent.mt"]] <- PercentageFeatureSet(at, features = at@misc[['gene_meta']]$ensembl[grepl("^MT-", at@misc[['gene_meta']]$symbol)])
+p1 <- VlnPlot(at, features = c("nFeature_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p2 <- VlnPlot(at, features = c("nCount_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p3 <- VlnPlot(at, features = c("percent.mt")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend()
+p1 + p2 + p3 + patchwork::plot_layout(nrow = 1, ncol = 3)
+FeatureScatter(at, feature1 = "nCount_RNA", feature2 = "percent.mt") + 
+  theme(plot.title = element_blank()) + 
+  NoLegend()
+```
+
+## 2. Quality control
+
+### 1. Set thresholds for before treatment sample
+
+UMI count
+
+**Please adjust the values of 'low.count.bt' and 'up.count.bt' in the following code chuck.**
+
+```{r}
+low.count.bt <- 20000 # Adjust the lower bounder of UMI count here
+up.count.bt <- 200000 # Adjust the upper bounder of UMI count here
+ggplot(data = bt[["nCount_RNA"]], aes(nCount_RNA)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 200) +
+  geom_vline(aes(xintercept = up.count.bt), colour="red") +
+  geom_vline(aes(xintercept = low.count.bt), colour="red")
+```
+
+Feature count
+
+**Please adjust the values of 'low.feature.bt' and 'up.feature.bt' in the following code chuck.**
+
+```{r}
+low.feature.bt <- 3000 # Adjust the lower bounder of Feature count here
+up.feature.bt <- 12000 # Adjust the upper bounder of Feature count here
+ggplot(data = bt[["nFeature_RNA"]], aes(nFeature_RNA)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 100) +
+  geom_vline(aes(xintercept = up.feature.bt), colour="red") +
+  geom_vline(aes(xintercept = low.feature.bt), colour="red")
+```
+
+Percentage of mitochondrial RNA
+
+**Please adjust the value of 'up.mt.bt' in the following code chuck.**
+
+```{r}
+up.mt.bt <- 20 # Adjust the lower bounder of percentage of mitochondrial RNA here
+ggplot(data = bt[["percent.mt"]], aes(percent.mt)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 1) +
+  geom_vline(aes(xintercept = up.mt.bt), colour="red")
+```
+
+### 2. Thresholds for after treatment sample
+
+UMI count
+
+**Please adjust the values of 'low.count.at' and 'up.count.at' in the following code chunck.**
+
+```{r}
+low.count.at <- 20000 # Adjust the lower bounder of UMI count here
+up.count.at <- 200000 # Adjust the upper bounder of UMI count here
+ggplot(data = at[["nCount_RNA"]], aes(nCount_RNA)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 500) +
+  geom_vline(aes(xintercept = up.count.at), colour="red") +
+  geom_vline(aes(xintercept = low.count.at), colour="red")
+```
+
+Feature count
+
+**Please adjust the values of 'low.feature.at' and 'up.feature.at' in the following code chunck.**
+
+```{r}
+low.feature.at <- 3000 # Adjust the lower bounder of Feature count here
+up.feature.at <- 12000 # Adjust the upper bounder of Feature count here
+
+ggplot(data = at[["nFeature_RNA"]], aes(nFeature_RNA)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 100) +
+  geom_vline(aes(xintercept = up.feature.at), colour="red") +
+  geom_vline(aes(xintercept = low.feature.at), colour="red")
+```
+
+Percentage of mitochondrial RNA
+
+**Please adjust the value of 'up.mt.at' in the following code chunck.**
+
+```{r}
+up.mt.at <- 20 # Adjust the lower bounder of percentage of mitochondrial RNA here
+ggplot(data = at[["percent.mt"]], aes(percent.mt)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 1) +
+  geom_vline(aes(xintercept = up.mt.at), colour="red")
+```
+
+### 3. Filter the datasets
+
+All the thresholds used here are set in the previous session.
+
+```{r}
+# BT sample
+bt_f <- subset(bt, subset = nCount_RNA > low.count.bt & nCount_RNA < up.count.bt)
+bt_f <- subset(bt_f, subset = nFeature_RNA > low.feature.bt & nFeature_RNA < up.feature.bt)
+bt_f <- subset(bt_f, subset = percent.mt < up.mt.bt)
+
+# AT sample
+at_f <- subset(at, subset = nCount_RNA > low.count.at & nCount_RNA < up.count.at)
+at_f <- subset(at_f, subset = nFeature_RNA > low.feature.at & nFeature_RNA < up.feature.at)
+at_f <- subset(at_f, subset = percent.mt < up.mt.at)
+```
+
+_Before treatment_ sample dataset after QC
+```{r}
+bt_f
+```
+
+_After treatment_ sample dataset after QC
+```{r}
+at_f
+```
+
+## 3. Visualize the QC for filtered datasets
+
+### Before treatment sample
+
+```{r}
+p1 <- VlnPlot(bt_f, features = c("nFeature_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p2 <- VlnPlot(bt_f, features = c("nCount_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p3 <- VlnPlot(bt_f, features = c("percent.mt")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend()
+p1 + p2 + p3 + patchwork::plot_layout(nrow = 1, ncol = 3)
+```
+
+### After treatment sample
+
+```{r}
+p1 <- VlnPlot(at_f, features = c("nFeature_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p2 <- VlnPlot(at_f, features = c("nCount_RNA")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend() 
+p3 <- VlnPlot(at_f, features = c("percent.mt")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) + 
+  NoLegend()
+p1 + p2 + p3 + patchwork::plot_layout(nrow = 1, ncol = 3)
+```
+
+# 3. Lineage label information
+
+## 1. Lineage label table
+
+1. If we get the dataset after "PCR amplifying lineage label". We should merge the lineage label information from these tables with the information from gene expression tables. We pick the larger count value, if one label was detected by both methods in certain cell.
+2. Remove the cell barcodes in linage label tables which are not in gene expression datasets.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# load label before treatment
+df_lin_b_trans <- read.csv(bt_label_path, stringsAsFactors = FALSE)
+df_lin_b_trans$cell_barcode <- sapply(df_lin_b_trans$cell_barcode, function(x){substring(x, 2, nchar(x)-1)})
+
+# df_lin_b_cdna <- read.csv(bt_label_cDNA_path, stringsAsFactors = FALSE) 
+# df_lin_b_cdna$cell_barcode <- sapply(df_lin_b_cdna$cell_barcode, function(x){substring(x, 2, nchar(x)-1)})
+# df_lin_b_library <- read.csv(bt_label_Library_path, stringsAsFactors = FALSE)
+# df_lin_b_library$cell_barcode <- sapply(df_lin_b_library$cell_barcode, function(x){substring(x, 2, nchar(x)-1)})
+
+# # Integrate PCR amplified lineage label information
+# df_lin_b <- rbind.data.frame(df_lin_b_trans, df_lin_b_cdna) %>%
+#   rbind.data.frame(df_lin_b_library) %>%
+#   unique() %>%
+#   arrange(cell_barcode, adjusted_sequence) %>%
+#   group_by(cell_barcode, adjusted_sequence) %>%
+#   summarise(count = max(count))
+
+df_lin_b <- df_lin_b_trans
+
+# Filter out the cell barcodes for low quality cells
+df_lin_b_filter_cell <- filter(df_lin_b, cell_barcode %in% colnames(bt_f))
+
+# load label after treatment
+df_lin_a_trans <- read.csv(at_label_path, stringsAsFactors = FALSE)
+df_lin_a_trans$cell_barcode <- sapply(df_lin_a_trans$cell_barcode, function(x){substring(x, 2, nchar(x)-1)})
+# df_lin_a_cdna <- read.csv(at_label_cDNA_path, stringsAsFactors = FALSE)
+# df_lin_a_cdna$cell_barcode <- sapply(df_lin_a_cdna$cell_barcode, function(x){substring(x, 2, nchar(x)-1)})
+# df_lin_a_library <- read.csv(at_label_Library_path, stringsAsFactors = FALSE)
+# df_lin_a_library$cell_barcode <- sapply(df_lin_a_library$cell_barcode, function(x){substring(x, 2, nchar(x)-1)})
+# 
+# # Integrate PCR amplified lineage label information
+# df_lin_a <- rbind.data.frame(df_lin_a_trans, df_lin_a_cdna) %>%
+#   rbind.data.frame(df_lin_a_library) %>%
+#   unique() %>%
+#   arrange(cell_barcode, adjusted_sequence) %>%
+#   group_by(cell_barcode, adjusted_sequence) %>%
+#   summarise(count = max(count))
+
+df_lin_a <- df_lin_a_trans
+
+# Filter out the cell barcodes for low quality cells
+df_lin_a_filter_cell <- filter(df_lin_a, cell_barcode %in% colnames(at_f))
+```
+
+```{r}
+cat("Before treatment sample contains",
+    length(unique(df_lin_b$adjusted_sequence)),
+    "unique lineage labels extracted from aligned BAM file.\n",
+    length(unique(df_lin_b_filter_cell$adjusted_sequence)),
+    "was left, after filtering by valid cell barcodes\n")
+cat("After treatment sample contains",
+    length(unique(df_lin_a$adjusted_sequence)),
+    "unique lineage labels extracted from aligned BAM file.\n",
+    length(unique(df_lin_a_filter_cell$adjusted_sequence)),
+    "was left, after filtering by valid cell barcodes")
+```
+
+## 2. Distribution of lineage label counts per cell (including low quality cells)
+
+```{r}
+tmp <- df_lin_b %>% 
+  group_by(cell_barcode) %>% 
+  summarise(count = sum(count)) %>% 
+  mutate(sample = rep("BT", n()))
+
+plot_table <- df_lin_a %>% 
+  group_by(cell_barcode) %>% 
+  summarise(count = sum(count)) %>% 
+  mutate(sample = rep("AT", n())) %>% 
+  rbind.data.frame(tmp)
+
+ggplot(data = plot_table, aes(count, fill = sample)) +
+  geom_histogram(binwidth = 0.5, alpha = 0.5, position = 'identity') +
+  scale_x_continuous("Lineage labels counts per cell",
+                     breaks=seq(0, max(plot_table$count), 5),
+                     labels = seq(0, max(plot_table$count), 5))
+```
+
+## 3. Lineage label sequences overlapped by two samples (without low quality cells)
+
+```{r}
+p <- venn.diagram(
+  x = list(df_lin_b_filter_cell$adjusted_sequence,
+  df_lin_a_filter_cell$adjusted_sequence),
+  category.names = c("Sample before treatment", "Sample after treatment"),
+  filename = NULL,
+  output=FALSE,
+
+  # Circles
+  lwd = 2,
+  lty = 'blank',
+  fill = brewer.pal(3, "Pastel2")[1:2],
+  
+  # Numbers
+  cex = 1,
+  fontface = "bold",
+  fontfamily = "sans",
+  
+  # Set names
+  cat.cex = 1,
+  cat.fontface = "bold",
+  cat.default.pos = "outer",
+  cat.pos = c(-10, 10),
+  cat.fontfamily = "sans",
+  cat.dist = c(0.05, 0.05))
+print.ggExtraPlot(p)
+```
+
+```{r}
+# Generate lineage label index. Here we use all the lineage label information before Seurat QC (including lineage labels from low quality cells)
+label_index <- data.frame(seq = unique(c(as.character(df_lin_b$adjusted_sequence), 
+                                        as.character(df_lin_a$adjusted_sequence))),
+                          stringsAsFactors = FALSE)
+label_index$seq_id <- seq(1, nrow(label_index))
+#head(label_index)
+l_b_no_qc <- df_lin_b %>% 
+  left_join(label_index, by = c("adjusted_sequence" = "seq")) %>% 
+  dplyr::arrange(cell_barcode, seq_id) 
+
+l_a_no_qc <- df_lin_a %>% 
+  left_join(label_index, by = c("adjusted_sequence" = "seq")) %>% 
+  dplyr::arrange(cell_barcode, seq_id) 
+
+```
+
+## 4. Filter out labels occurring in BT sample for muiltiple times
+
+The lineage labels occurring too many times in **before treatment** sample provides limited information to lineage tracing. User can choose to remove these labels.
+
+1. Number of labels with corresponding occurrence in before treatment sample (across all cells).
+
+```{r}
+l_b_count_no_qc <- l_b_no_qc %>% 
+  ungroup() %>% 
+  select(seq_id, count) %>% 
+  group_by(seq_id) %>% 
+  summarise(total_count = n())
+
+ggplot(data = l_b_count_no_qc, aes(total_count)) +
+  geom_histogram(binwidth = 0.5, alpha = 0.5, position = 'identity') +
+  scale_x_continuous("Total Number of Occurence", 
+                     breaks=seq(1, max(l_b_count_no_qc$total_count), 1),
+                     labels = seq(1, max(l_b_count_no_qc$total_count), 1)) + 
+  stat_bin(aes(y=..count.., label=..count..), geom="text", vjust=-.5, bins = max(l_b_count_no_qc$total_count)) 
+```
+
+
+**Please change value of 'count_threshold' below to set the maximum number of occurence for a lineage label occuring in BT sample.**
+
+```{r}
+count_threshold <- 4 # change the threshold for filtering the labels
+# count_threshold <- max(l_b_count$total_count) # if you don't want to do any filter here. Please use this line.
+```
+
+2. Filtered columns from before treatment sample
+
+```{r}
+filtered_label <- l_b_count_no_qc$seq_id[which(l_b_count_no_qc$total_count > count_threshold)]
+l_b_filtered_no_qc <- filter(l_b_no_qc, (!seq_id %in% filtered_label))
+cat(length(unique(l_b_no_qc$adjusted_sequence)) - length(unique(l_b_filtered_no_qc$adjusted_sequence)), 
+    " lineage labels and ", 
+    length(unique(l_b_no_qc$cell_barcode)) - length(unique(l_b_filtered_no_qc$cell_barcode)), 
+    "cells are removed from BT lineage label table.")
+```
+
+3. Filtered columns from after treatment sample
+
+```{r}
+l_a_filtered_no_qc <- filter(l_a_no_qc, (!seq_id %in% filtered_label))
+cat(length(unique(l_a_no_qc$adjusted_sequence)) - length(unique(l_a_filtered_no_qc$adjusted_sequence)), 
+    " lineage labels and ", 
+    length(unique(l_a_no_qc$cell_barcode)) - length(unique(l_a_filtered_no_qc$cell_barcode)), 
+    "cells are removed from AT lineage label table.")
+```
+
+4. Get lineage label combination for each cell
+
+```{r}
+cb_b_uni <- unique(l_b_filtered_no_qc$cell_barcode)
+cb_a_uni <- unique(l_a_filtered_no_qc$cell_barcode)
+
+# l_b_list <- vector(mode="list", length=length(cb_b_uni))
+# names(l_b_list) <- cb_b_uni
+l_b_fre_merge_filtered <- NULL
+for (cb in cb_b_uni){
+  tmp <- filter(l_b_no_qc, cell_barcode == cb)
+  seq <- as.character(tmp$seq_id)
+  n <- nrow(tmp)
+  count <- as.character(tmp$count)
+  # l_b_list[[cb]] <- as.vector(seq)
+  if (n == 1){
+    seq <- seq
+  } else {
+    seq <- base::paste(as.character(seq), collapse = ":")
+  }
+  
+  if (n == 1){
+    count <- count
+  } else {
+    count <- base::paste(as.character(count), collapse = ":")
+  }
+  tmp_df <- data.frame(cell_barcode = cb, n_seq = n, lineage_id = seq,
+                       count = count, stringsAsFactors = FALSE)
+  l_b_fre_merge_filtered <- rbind.data.frame(l_b_fre_merge_filtered, tmp_df)
+}
+ 
+# l_a_list <- vector(mode="list", length=length(cb_a_uni))
+# names(l_a_list) <- cb_a_uni
+l_a_fre_merge_filtered <- NULL
+
+for (cb in cb_a_uni){
+  tmp <- filter(l_a_no_qc, cell_barcode == cb)
+  seq <- as.character(tmp$seq_id)
+  n <- nrow(tmp)
+  count <- as.character(tmp$count)
+  # l_a_list[[cb]] <- as.vector(seq)
+  if (n == 1){
+    seq <- seq
+  } else {
+    seq <- base::paste(as.character(seq), collapse = ":")
+  }
+  
+  if (n == 1){
+    count <- count
+  } else {
+    count <- base::paste(as.character(count), collapse = ":")
+  }
+  tmp_df <- data.frame(cell_barcode = cb, n_seq = n, lineage_id = seq,
+                       count = count, stringsAsFactors = FALSE)
+  l_a_fre_merge_filtered <- rbind.data.frame(l_a_fre_merge_filtered, tmp_df)
+}
+
+```
+
+```{r}
+myCol <- brewer.pal(3, "Pastel2")
+
+cat.pos <- c(-10, 10)
+cat.dist <- c(0.05, 0.05)
+p <- venn.diagram(
+  x = list(l_b_fre_merge_filtered$lineage_id, l_a_fre_merge_filtered$lineage_id),
+  category.names = c("bt_Olaparib", "at_Olaparib"),
+  filename = NULL,
+  output=FALSE,
+
+  # Circles
+  lwd = 2,
+  lty = 'blank',
+  fill = myCol[1:2],
+  
+  # Numbers
+  cex = 1,
+  fontface = "bold",
+  fontfamily = "sans",
+  
+  # Set names
+  cat.cex = 1,
+  cat.fontface = "bold",
+  cat.default.pos = "outer",
+  cat.pos = cat.pos,
+  cat.fontfamily = "sans",
+  cat.dist = cat.dist
+)
+print.ggExtraPlot(p)
+```
+
+
+## 5. CL for cell lines with filter
+
+This session compute the congruency level from each cells in BT sample to each cells in AT sample.
+
+**Definition of Congruency Level (CL)**
+
+Congruency is defined as the number of lineage labels of a departuring cell to the destination cell. For example:
+
+* cell a has lineage label: L1 + L2 + L3 + L4
+* cell b has lineage label: L1 + L2 + L3 + L4 + L5
+* cell c has lineage label: L1
+* cell d has lineage label: L1 + L2 + L3 + L5
+
+Here we get:
+
+* CL~ab~ (Congruent Level from cell a to cell b) = 4/5 = 80%
+* CL~cb~ (Congruent level from cell c to cell b) = 1/5 = 20%
+* CL~ba~ (Congruent level from cell b to cell a) = 5/4 = 125%
+
+We define the congruent level of cells contain conflict label as 0%. For example:
+
+* CL~da~ (Congruent level from cell d to cell a) = 0%
+
+Function `CongruencyLevel` in 'auxiliary_codes.R' is defined for calculate it.
+
+**Note**: In this step we use all the cells which have lineage lables to calculate congruency level, **ignoring QC filter.**
+
+```{r}
+# Calculate congruent level matrix
+
+cl_bt_to_at_filtered <- matrix(data = NA, nrow = nrow(l_b_fre_merge_filtered),
+                      ncol = nrow(l_a_fre_merge_filtered))
+time_stamp <- Sys.time()
+for (i in 1:nrow(l_b_fre_merge_filtered)){
+  cell_from <- unlist(strsplit(l_b_fre_merge_filtered$lineage_id[i], ':'))
+  for (j in 1:nrow(l_a_fre_merge_filtered)){
+    cell_to <- unlist(strsplit(l_a_fre_merge_filtered$lineage_id[j], ':'))
+    cl_bt_to_at_filtered[i, j] <- CongruencyLevel(cell_from, cell_to)
+  }
+}
+print(Sys.time() - time_stamp)
+row.names(cl_bt_to_at_filtered) <- l_b_fre_merge_filtered$cell_barcode
+colnames(cl_bt_to_at_filtered) <- l_a_fre_merge_filtered$cell_barcode
+```
+
+## 6. CL for cells within before treatment sample with filtering labels
+
+```{r}
+cl_bt_to_bt_filtered <- matrix(data = NA, nrow = nrow(l_b_fre_merge_filtered),
+                      ncol = nrow(l_b_fre_merge_filtered))
+
+time_stamp <- Sys.time()
+for (i in 1:nrow(l_b_fre_merge_filtered)){
+  cell_from <- unlist(strsplit(l_b_fre_merge_filtered$lineage_id[i], ':'))
+  for (j in 1:nrow(l_b_fre_merge_filtered)){
+    cell_to <- unlist(strsplit(l_b_fre_merge_filtered$lineage_id[j], ':'))
+    cl_bt_to_bt_filtered[i, j] <- CongruencyLevel(cell_from, cell_to)
+  }
+}
+print(Sys.time() - time_stamp)
+
+row.names(cl_bt_to_bt_filtered) <- l_b_fre_merge_filtered$cell_barcode
+colnames(cl_bt_to_bt_filtered) <- l_b_fre_merge_filtered$cell_barcode
+```
+
+# 4. Group cells by lineage label
+
+## 1. Set cell match types
+
+We mark each cell with the matching types between AT and BT samples according to congruncy level:
+
+* **perfect**: There are some cells in the other sample have the 100% congruency level with this cell, i.e. its lineage label combination is **perfect** matched to at least one cell in the other sample.
+* **partial**: There is no cells in the other samples perfectly matched to this cell but are some cells have the non 0% congruency level with this cell, i.e. its lineage label combination is **partially** matched to at least one cell in the other sample.
+* **non**: The congruency level from this cell to all the cells in the other sample are 0%, i.e. there is no cell in the other sample patched to this cell.
+
+```{r}
+l_b_fre_merge_filtered$drugSens <- apply(cl_bt_to_at_filtered, 1, function(x){
+  if (sum(x) == 0){
+    return("non")
+  } else if (100 %in% x){
+    return("perfect")
+  } else {
+    return("partial")
+  }
+})
+
+l_a_fre_merge_filtered$drugSens <- apply(cl_bt_to_at_filtered, 2, function(x){
+  if (sum(x) == 0){
+    return("non")
+  } else if (100 %in% x){
+    return("perfect")
+  } else {
+    return("partial")
+  }
+})
+
+table(l_b_fre_merge_filtered$drugSens)
+table(l_a_fre_merge_filtered$drugSens)
+```
+
+Filter the lineage label tables to make them contain only the cells left by QC (keeping the cell barcodes appearing in at_f and bt_f)
+
+```{r}
+l_a_fre_merge_filtered <- l_a_fre_merge_filtered[l_a_fre_merge_filtered$cell_barcode %in% colnames(at_f),]
+l_b_fre_merge_filtered <- l_b_fre_merge_filtered[l_b_fre_merge_filtered$cell_barcode %in% colnames(bt_f),]
+```
+
+## 2. Mark sisters in BT
+
+We assign a `sisters` ID to each cells. The cells from same lineage have the same `sisters` value (an integer). For the cells which do not have any sisters in BT sample, `NA` will be assigned.
+
+**Note**: Only the cell whose lineage label combinations are **perfect matched** will be consider as the sisters.
+
+```{r}
+sisters_bt <- l_b_fre_merge_filtered %>% 
+  filter(cell_barcode %in% colnames(bt_f)) %>% # filter low quality cells
+  select(cell_barcode, lineage_id) %>%
+  group_by(lineage_id) %>% 
+  mutate(n_sisters = n()) %>% 
+  filter(n_sisters > 1) %>% 
+  mutate(sister = group_indices())
+
+l_b_fre_merge_filtered <- left_join(l_b_fre_merge_filtered,
+                                    select(sisters_bt, cell_barcode, sister, lineage_id),
+                                    by = c("cell_barcode", "lineage_id"))
+```
+
+# 5. Merge two samples
+
+1. Normalization (logNormalize)
+
+```{r}
+at_f <- NormalizeData(at_f, verbose = FALSE)
+bt_f <- NormalizeData(bt_f, verbose = FALSE)
+```
+
+2. Merge two samples into one dataset (using `merge` method from Seurat)
+
+```{r}
+at_f <- RenameCells(at_f, add.cell.id = "AT")
+bt_f <- RenameCells(bt_f, add.cell.id = "BT")
+merge <- merge(at_f, bt_f, project = "LineageTracing")
+merge <- AddMetaData(merge, merge@meta.data$orig.ident, "samples")
+merge_gene <- rbind.data.frame(bt_f@misc$gene_meta, at_f@misc$gene_meta) %>% 
+  unique()
+merge@misc[['gene_meta']] <- merge_gene
+```
+
+3. Add drug sensitivity grouping information to metadata
+
+We will add a 'drugSens' column to the Seurat objects at_f, bt_f, and merge. The possible values of this variable are:
+
+* **pre-sensitive**: The cells in BT sample which have the perfect/partial matched cells (sisters) in the AT sample. It can only appear in BT samples.
+* **pre-resistant**: The cells in BT sample which does **not** perfect/partial match to any cells in the AT sample. It can only appear in BT samples.
+* **resistant**: The cells in AT sample which have the perfect/partial matched cells (sisters) in the BT sample. It can only appear in AT samples.
+* **non**: The cells in AT sample which have lineage label but can not be matched to any cell in the BT sample. It can appear in AT samples.
+* **NA**: No labels are found in this cell. It can appear in both samples.
+
+```{r}
+sens_bt <- rep("pre-sensitive", nrow(l_b_fre_merge_filtered))
+sens_bt[which(l_b_fre_merge_filtered$drugSens == "perfect")] <- "pre-resistant"
+names(sens_bt) <- paste0("BT_", l_b_fre_merge_filtered$cell_barcode)
+sens_bt <- sens_bt[colnames(bt_f)]
+
+sens_at <- rep("non", nrow(l_a_fre_merge_filtered))
+sens_at[which(l_a_fre_merge_filtered$drugSens == "perfect")] <- rep("resistant", sum(l_a_fre_merge_filtered$drugSens == "perfect"))
+names(sens_at) <- paste0("AT_", l_a_fre_merge_filtered$cell_barcode)
+sens_at <- sens_at[colnames(at_f)]
+
+sens <- c(sens_bt, sens_at)
+merge <- AddMetaData(merge, sens, "drugSens")
+at_f <- AddMetaData(at_f, sens_at, "drugSens")
+bt_f <- AddMetaData(bt_f, sens_bt, "drugSens")
+table(sens_bt)
+```
+
+4. Add drug sister information to metadata
+
+We will add a 'sisters' column to the metadata of Seurat objects bt_f, and merge. The possible values of this variable are:
+
+* **integers**: The family ID for each group of sister cells.
+* **NA**: The cells are singleton in the BT sample.
+
+```{r}
+# add sister information
+sisters <- sisters_bt$sister
+names(sisters) <- paste0("BT_", sisters_bt$cell_barcode)
+merge <- AddMetaData(merge, sisters, "sisters")
+bt_f <- AddMetaData(bt_f, sisters, "sisters")
+```
+
+5. Map pre-resistant with resistant cells
+
+We will add a 'prer_r_group' column to the metadata of Seurat objects bt_f, at_f, and merge. We only map the cells which are **perfect matched** by lineage label combinations.
+
+The possible values of this variable are:
+
+* **integers**: The family ID for each group of pre-resistant-resistant family.
+* **NA**: The cells are neighter pre-resistant nor resistant.
+
+```{r}
+preresistant <- l_b_fre_merge_filtered[which(l_b_fre_merge_filtered$drugSens == "perfect"), ] %>% 
+  arrange(sister)
+preresistant$prer_r_group <- rep(NA, nrow(preresistant))
+preresistant$prer_r_group[1] <- 1
+group_ind <- 1
+for (i in 2:nrow(preresistant)){
+  if (!is.na(preresistant$sister[i]) & (preresistant$sister[i] == preresistant$sister[i - 1])) {
+    preresistant$prer_r_group[i] <- group_ind
+  } else {
+    group_ind <- group_ind + 1
+    preresistant$prer_r_group[i] <- group_ind
+  }
+}
+
+l_b_fre_merge_filtered <- left_join(l_b_fre_merge_filtered,
+                                    select(preresistant, cell_barcode, prer_r_group),
+                                    by = "cell_barcode")
+
+resistant <- NULL
+for (cell in preresistant$cell_barcode){
+  tmp <- data.frame(cell_barcode = colnames(cl_bt_to_at_filtered)[which(cl_bt_to_at_filtered[cell, ] == 100)], 
+                    stringsAsFactors = FALSE)
+  tmp$prer_r_group <- rep(preresistant$prer_r_group[preresistant$cell_barcode == cell], nrow(tmp))
+  resistant <- rbind.data.frame(resistant, tmp)
+}
+resistant <- unique(resistant)
+l_a_fre_merge_filtered <- left_join(l_a_fre_merge_filtered, resistant, by = "cell_barcode")
+
+cat("There are ", nrow(preresistant), " in BT sample can be perfectly matched to some cells in AT sample.\n")
+cat("There are ", nrow(resistant), " in AT sample can be perfectly matched to some cells in BT sample.")
+```
+
+```{r}
+# Add pre-resistant and resistant mapping information to Seurat objects
+preresistant <- l_b_fre_merge_filtered$prer_r_group
+names(preresistant) <- paste0("BT_", l_b_fre_merge_filtered$cell_barcode)
+resistant <- l_a_fre_merge_filtered$prer_r_group
+names(resistant) <- paste0("AT_", l_a_fre_merge_filtered$cell_barcode)
+bt_f <- AddMetaData(bt_f, preresistant, "prer_r_group")
+at_f <- AddMetaData(at_f, resistant, "prer_r_group")
+merge <- AddMetaData(merge, c(preresistant, resistant), "prer_r_group")
+```
+
+# 6. Check the data statistics and qualities
+
+1. Number of cells in each group
+
+```{r}
+cat("Pre-resistant, Pre-sensitive, and Resistant cells in merge dataset:")
+table(merge$drugSens)
+cat("Sister hood in merge dataset:")
+table(table(merge$sisters))
+cat("Pre-resistant and Pre-sensitive cells in BT dataset:")
+table(bt_f$drugSens)
+cat("Sister hood in BT dataset:")
+table(table(bt_f$sisters))
+cat("non and Resistant cells in AT dataset:")
+table(merge$drugSens)
+```
+
+2. QC metrics for the sisters vs non-sisters in BT sample
+
+```{r}
+bt_f_p <- bt_f
+bt_f_p$sisters <- ifelse(is.na(bt_f_p$sisters), "singleton", "sisters")
+Idents(bt_f_p) <- "sisters"
+VlnPlot(bt_f_p, features = c("nFeature_RNA"),
+        split.by = "sisters") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank())
+VlnPlot(bt_f_p, features = c("nCount_RNA"),
+        split.by = "sisters") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank())
+VlnPlot(bt_f_p, features = c("percent.mt"),
+        split.by = "sisters") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank())
+
+```
+
+3. QC metrics for the pre-sensitive vs pre-resistant in BT sample
+
+```{r}
+bt_f_p <- subset(bt_f_p, cells = rownames(bt_f_p@meta.data)[!is.na(bt_f_p@meta.data$drugSens)])
+Idents(bt_f_p) <- "drugSens"
+VlnPlot(bt_f_p, features = c("nFeature_RNA"),
+        split.by = "drugSens") + 
+    stat_compare_means(label.x.npc = "center") + 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank()) +
+  stat_summary(fun.y = mean, geom='point', size = 25, colour = "white", shape = 95)+
+  NoLegend()
+VlnPlot(bt_f_p, features = c("nCount_RNA"),
+        split.by = "drugSens") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank()) +
+  stat_summary(fun.y = mean, geom='point', size = 25, colour = "white", shape = 95)+
+  NoLegend()
+VlnPlot(bt_f_p, features = c("percent.mt"),
+        split.by = "drugSens") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank()) +
+  stat_summary(fun.y = mean, geom='point', size = 25, colour = "white", shape = 95)+
+  NoLegend()
+
+```
+
+4. QC metrics for the pre-resistant resistant in merge sample
+
+```{r}
+merge_p <- subset(merge, cells = rownames(merge@meta.data)[!is.na(merge@meta.data$prer_r_group)])
+merge_p$prer_r <- rep("preresistant", ncol(merge_p))
+merge_p$prer_r[which(merge_p$samples == "AfterTreatment")] <- "resistant"
+Idents(merge_p) <- "prer_r"
+VlnPlot(merge_p, features = c("nFeature_RNA"),
+        split.by = "prer_r") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank())
+VlnPlot(merge_p, features = c("nCount_RNA"),
+        split.by = "prer_r") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank())
+VlnPlot(merge_p, features = c("percent.mt"),
+        split.by = "prer_r") + 
+    stat_compare_means(label.x.npc = "center")+ 
+    stat_compare_means(method = "t.test", vjust = 2, label.x.npc = "center") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_text(angle = 0, vjust = 0, hjust = 0.5),
+        axis.ticks.x=element_blank())
+
+```
+
+# 7. Save files
+
+```{r}
+saveRDS(at_f, paste0(output_dir, "/at_sample_ready.RDS"))
+saveRDS(bt_f, paste0(output_dir, "/bt_sample_ready.RDS"))
+saveRDS(merge, paste0(output_dir, "/merge_sample_ready.RDS"))
+save(cl_bt_to_at_filtered, cl_bt_to_bt_filtered, file = paste0(output_dir, "/congruency_level_tables.RData"))
+save(l_b_fre_merge_filtered, l_a_fre_merge_filtered, label_index,
+     file = paste0(output_dir, "/lineage_label_tables.RData"))
+```
+
+Here we saved 5 files into the output directory:
+
+1. **at_sample_ready.RDS**: A Seurat object containing scRNAseq data for after treatment sample. The QC and Normalization has been performed. Drug sensitivity information has been added to the metadata.
+2. **bt_sample_ready.RDS**: A Seurat object containing scRNAseq data for before treatment sample. The QC and Normalization has been performed. Drug sensitivity and sisterhood information has been added to the metadata.
+3. **merge_sample_ready.RDS**: A Seurat object merged above two samples together.
+4. **congruency_level_tables.RData**: An R data file. It contains two matrices:
+    1. *cl_bt_to_at_filtered*: A large matrix. It contains the congruency levels for the departure cells (from sample **before** treatment) towards the destination cells (from **after** treatment sample). Its row names are the cellbarcodes for departure cells (from **before** treatmeant sample). Its column names are the cellbarcodes for destination cells (from **after** treatmeant sample). 
+    2. *cl_bt_to_bt_filtered*: A large matrix. It contains the congruency levels for the departure cells (from sample **before** treatment) towards the destination cells (from **before** treatment sample). Its row names are the cellbarcodes for departure cells (from **before** treatmeant sample). Its column names are the cellbarcodes for destination cells (from **before** treatmeant sample). 
+5. **lineage_label_tables.RData**: An R data file. It contains 5 tables (data frame):
+    1. *l_b_fre_merge_filtered*: A data frame. Lineage label summary table for **before** treatment sample. It only contains the cells appearing in bt_f Seurat object (the cells passed QC).
+        * cell_barcode: The nucleotide sequence of cell barcodes (directly from sequencing output);
+        * n_seq: Number of unique lineage labels in each cell.
+        * lineage_id: The unique identifier for lineage labels in each cell. Different lineage label IDs are separated by ";". It can be mapped to *seq\_id* in table *label\_index*.
+        * count: The count of each lineage labels in each cell. The counts for different lineage labels are separated by ";".
+        * drugSens: The type for the cells matching to AT sample. Possible values are: "non", "perfect", "partial".
+        * sisters: The sisterhood information for the cells.
+        
+    2. *l_a_fre_merge_filtered*: A data frame. Lineage label summary table for **after** treatment sample. It only contains the cells appearing in at_f Seurat object (the cells passed QC).
+        * cell_barcode: The nucleotide sequence of cell barcodes (directly from sequencing output);
+        * n_seq: Number of unique lineage labels in each cell.
+        * lineage_id: The unique identifier for lineage labels in each cell. Different lineage label IDs are separated by ";". It can be mapped to *seq\_id* in table *label\_index*.
+        * count: The count of each lineage labels in each cell. The counts for different lineage labels are separated by ";".
+        * drugSens: The type for the cells matching to BT sample. Possible values are: "non", "perfect", "partial".
+    3. *label_index*: A data frame. The index table for lineage label sequences.
+        * sequence: The nucleotide sequences for lineage labels from both two samples.
+        * seq_id: The unique identifier (integer) for lineage labels. It is used by the *lineage\_id* column in above two tables to indicate the lineage label combination for each cell.
+    
+```{r}
+sessionInfo()
+```
+
