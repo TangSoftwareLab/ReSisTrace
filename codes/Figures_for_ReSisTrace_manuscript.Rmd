@@ -34,7 +34,8 @@ library(gridExtra) # Merge multiple ggplots with 'grid.arrange' function
 library(reshape2)
 library(car) # scatterplot combined with barplot
 library(PharmacoGx)
-output_dir <- "./data/output/"
+library(fossil) #Rand index
+output_dir <- "../data/output/"
 if (!dir.exists(output_dir)){
   dir.create(output_dir, recursive = TRUE)
 }
@@ -98,7 +99,7 @@ if (!dir.exists(sub_output_dir)){
 Load data
 
 ```{r eval=FALSE}
-merge <- readRDS("./data/input/all_bt_sample_merge_filtered_gene_sisters.RDS")
+merge <- readRDS("../data/input/all_bt_sample_merge_filtered_gene_sisters.RDS")
 
 # All of the non-sister cells are labeled with the "NA" at the end of values in "sisters_sample" column
 all_sister_pairs <- merge$sisters_sample[!endsWith(merge$sisters_sample, "NA")]
@@ -353,7 +354,7 @@ rm(expression_mat)
 This part takes a lot of time to finish. The codes were submited as a batch job on the CSC Puhti cluster. The codes are in: "./codes_for_batch_job/plot_sister_similarity.R" and "./codes_for_batch_job/plot_sister_similarity.sh"
 
 ```{r eval=FALSE}
-sister_d <- readRDS("./data/input/sister_distance.RDS")
+sister_d <- readRDS("../data/input/sister_distance.RDS")
 # p1 <- PlotSisterSimilarity(distance = sister_d$distance,
 #                           similarity = sister_d$similarity,
 #                                  n_gene = sister_d$n_gene,
@@ -414,7 +415,7 @@ if (!dir.exists(sub_output_dir)) {
 Load data
 
 ```{r}
-merge <- readRDS("./data/input/all_bt_sample_merge_filtered_gene_sisters.RDS")
+merge <- readRDS("../data/input/all_bt_sample_merge_filtered_gene_sisters.RDS")
 ```
 
 Prepare plot table
@@ -477,7 +478,7 @@ ggsave(paste0(sub_output_dir, "/Figure1B3_highlight_sister_group_",paste0(groups
 
 The calculation of sister-concordant genes were performed on the CSC Puhti server with a batch job. The codes are in: "./codes_for_batch_job/calculate_conserve_gene.R" and "./codes_for_batch_job/calculate_conserve_gene.sh".
 
-The output files from this batch job are saved in "./data/input/sister_concordant_gene/"
+The output files from this batch job are saved in "../data/input/sister_concordant_gene/"
 
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
@@ -491,7 +492,7 @@ Load data
 
 ```{r}
 conserve_gene <- read.csv(
-  "./data/input/sister_concordant_gene/sister_conserve_gene_all_bt_sample_twin.csv",
+  "../data/input/sister_concordant_gene/sister_conserve_gene_all_bt_sample_twin.csv",
   stringsAsFactors = FALSE)
 ```
 
@@ -585,7 +586,7 @@ The alignment is done with velocyto. The codes are in: "./codes_for_batch_job/ru
 
 The scVelo is used to do the RNA velocity analysis. The codes are in "./codes_for_batch_job/runscvelo.py" and "./codes_for_batch_job/runscvelo.sh"
 
-The outputs are saved in "./data/input/scvelo/"
+The outputs are saved in "../data/input/scvelo/"
 
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
@@ -598,9 +599,9 @@ if (!dir.exists(sub_output_dir)) {
 Load data
 
 ```{r}
-dynamic <- read.csv("./data/input/scvelo/RNA_velocity_var_all_BT.csv")
-# conserve_gene <- read.csv("./data/input/sister_concordant_gene/sister_conserve_gene_all_bt_sample_twin.csv")
-selected_genes <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_second_bin.csv")
+dynamic <- read.csv("../data/input/scvelo/RNA_velocity_var_all_BT.csv")
+# conserve_gene <- read.csv("../data/input/sister_concordant_gene/sister_conserve_gene_all_bt_sample_twin.csv")
+selected_genes <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_second_bin.csv")
 ```
 
 Prepare table for plot
@@ -685,10 +686,10 @@ ggsave(
 
 ## G: Gene set analysis for sister-discordant genes
 
-1. We calculated the summation of all of the gene's expression across all of the cells in all BT samples. (results in './data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv') 
+1. We calculated the summation of all of the gene's expression across all of the cells in all BT samples. (results in '../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv') 
 2. We generated a histogram for the summation of expression for all of the genes (see below Figure S2A). Genes are grouped by sister-concordant genes (adj_p_value < 0.05 and log2FC_diff > 0) or sister-discordant genes (adj_p_value > 0.05 or log2FC_diff < 0).
 3. The genes in the second bin (second bar for each group) in the histogram are extracted and the gene set enrichment analysis is done on each group (sister-concordant genes n = 2059 [enrichr result](https://maayanlab.cloud/Enrichr/enrich?dataset=fe932ded91e8f8298f674699e8b007eb), and non-sister-concordant genes n = 1332 [enrichr result](https://maayanlab.cloud/Enrichr/enrich?dataset=7b522be89fef4b4a4f08355a0ef3703d))
-4. The tables for Pathways "KEGG 2021 Human" are downloaded and saved in "./data/input/enrichr/KEGG_2021_Human_table_sister_conserved_gene.txt" and "./data/input/enrichr/KEGG_2021_Human_table_non_conserved_gene.txt"
+4. The tables for Pathways "KEGG 2021 Human" are downloaded and saved in "../data/input/enrichr/KEGG_2021_Human_table_sister_conserved_gene.txt" and "../data/input/enrichr/KEGG_2021_Human_table_non_conserved_gene.txt"
 
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
@@ -699,7 +700,7 @@ if (!dir.exists(sub_output_dir)){
 ```
 
 ```{r}
-cons <- data.table::fread("./data/input/enrichr/KEGG_2021_Human_table_non_conserved_genes.txt")
+cons <- data.table::fread("../data/input/enrichr/KEGG_2021_Human_table_non_conserved_genes.txt")
 plot_table <- cons %>% 
     select(Term, x = `Odds Ratio`, p = `Adjusted P-value`) %>% 
     mutate(y = -log10(p),
@@ -767,7 +768,7 @@ if (!dir.exists(sub_output_dir)) {
 Prepare data table
 
 ```{r}
-data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
 ```
 
 ```{r}
@@ -900,7 +901,7 @@ label_sequences <- vector(mode = "list", length = length(samples))
 names(label_sequences) <- samples
 
 for (s in samples){
-  load(paste0("./data/input/preprocess/", s, "/lineage_label_tables.RData"))
+  load(paste0("../data/input/preprocess/", s, "/lineage_label_tables.RData"))
   label_id_bt <- sapply(l_b_fre_merge_filtered[["lineage_id"]], function(x)(strsplit(x, ":")))
   label_id_bt <- unique(purrr::reduce(label_id_bt, `c`))
   label_index <- label_index %>% 
@@ -982,7 +983,7 @@ plot_table %>%
 
 ```{r}
 data <- read_xlsx(
-  "./data/input/cell cycle analysis.xlsx",
+  "../data/input/cell cycle analysis.xlsx",
   range = c("B2:D22")) %>%
   na.omit() %>% 
   mutate(
@@ -1051,7 +1052,7 @@ if (!dir.exists(sub_output_dir)) {
 Load data
 
 ```{r}
-data <- read_xlsx("./data/input/ReSisTrace_figS1 - Copy.xlsx", range = "B1:G4")
+data <- read_xlsx("../data/input/ReSisTrace_figS1 - Copy.xlsx", range = "B1:G4")
 data <- t(data)
 colnames(data) <- c("0", "1", "> 1")
 data <- data * 100
@@ -1109,7 +1110,7 @@ ggsave(
 
 ## G: Counts of lineages in the BT sample
 
-The information about lineage labels for each samples are saved in "./data/input/preprocess/[sample_name]/lineage_label_tables.RData". After loading the ".RData" files, a data frame "l_b_fre_merge_filtered" will be in the working environment. This table contains the lineage label information for pre-treatment samples from different treatments.
+The information about lineage labels for each samples are saved in "../data/input/preprocess/[sample_name]/lineage_label_tables.RData". After loading the ".RData" files, a data frame "l_b_fre_merge_filtered" will be in the working environment. This table contains the lineage label information for pre-treatment samples from different treatments.
 
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
@@ -1127,7 +1128,7 @@ plot_table <- NULL
 samples <- c("Control_1", "Control_2", "Carboplatin_1", "Carboplatin_2", "Olaparib_1", "Olaparib_2", "NK_1", "NK_2")
 
 for (s in samples){
-  load(paste0("./data/input/preprocess/", s, "/lineage_label_tables.RData"))
+  load(paste0("../data/input/preprocess/", s, "/lineage_label_tables.RData"))
   tmp <- l_b_fre_merge_filtered %>% 
     select(lineage_id) %>% 
     table() %>% 
@@ -1223,7 +1224,7 @@ for (t in treatments){
   )
   deg <- read.csv(
     paste0(
-      "./data/input/DEG/deg_prer_pres_in_singleton_",
+      "../data/input/DEG/deg_prer_pres_in_singleton_",
       t,
       "_intersection.csv"
     )
@@ -1301,7 +1302,7 @@ if (!dir.exists(sub_output_dir)){
 ```
 
 ```{r}
-plot_table <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv")
+plot_table <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv")
 
 t_test <- t.test(plot_table$mean_expression[plot_table$conserve_gene == TRUE], plot_table$mean_expression[plot_table$conserve_gene == FALSE])
 print(t_test)
@@ -1392,14 +1393,14 @@ sub_output_dir <- paste0(output_dir, "FigureS2/")
 if (!dir.exists(sub_output_dir)) {
   dir.create(sub_output_dir)
 }
-selected_genes <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_second_bin.csv")
+selected_genes <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_second_bin.csv")
 ```
 
 ```{r eval = FALSE}
-unsplice <- read.csv("./data/input/scvelo/RNA_velocity_unspliced_all_BT.csv", row.names = 1)
+unsplice <- read.csv("../data/input/scvelo/RNA_velocity_unspliced_all_BT.csv", row.names = 1)
 unsplice <- as.matrix(unsplice)
 unsplice  <- unsplice[, colnames(unsplice) %in% selected_genes$ensembl]
-splice <- read.csv("./data/input/scvelo/RNA_velocity_spliced_all_BT.csv", row.names = 1)
+splice <- read.csv("../data/input/scvelo/RNA_velocity_spliced_all_BT.csv", row.names = 1)
 splice <- as.matrix(splice)
 splice <- splice[, colnames(splice) %in% selected_genes$ensembl]
 u_s_propotion <- unsplice / (unsplice + splice)
@@ -1416,7 +1417,7 @@ u_s_propotion <- read.csv(
 ```{r}
 u_s_propotion <- as.matrix(u_s_propotion)
 
-dynamic <- read.csv("./data/input/scvelo/RNA_velocity_var_all_BT.csv")
+dynamic <- read.csv("../data/input/scvelo/RNA_velocity_var_all_BT.csv")
 selected_genes$conserve_gene <- ifelse(selected_genes$Sister.conserved.gene, "Sister-concordant\ngene", "Sister-discordant\ngene")
 selected_genes$conserve_gene <- factor(selected_genes$conserve_gene, levels = c("Sister-concordant\ngene", "Sister-discordant\ngene"))
 selected_velocity_genes <- selected_genes %>%
@@ -1482,11 +1483,11 @@ sub_output_dir <- paste0(output_dir, "FigureS2/")
 if (!dir.exists(sub_output_dir)) {
   dir.create(sub_output_dir)
 }
-selected_genes <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_second_bin.csv")
+selected_genes <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_second_bin.csv")
 ```
 
 ```{r}
-dynamic <- read.csv("./data/input/scvelo/RNA_velocity_var_all_BT.csv")
+dynamic <- read.csv("../data/input/scvelo/RNA_velocity_var_all_BT.csv")
 selected_genes$conserve_gene <- ifelse(selected_genes$Sister.conserved.gene, "Sister-concordant\ngene", "Sister-discordant\ngene")
 selected_genes$conserve_gene <- factor(selected_genes$conserve_gene, levels = c("Sister-concordant\ngene", "Sister-discordant\ngene"))
 plot_table <- selected_genes %>%
@@ -1599,17 +1600,17 @@ if (!dir.exists(sub_output_dir)) {
 }
 ```
 
-We merged the scRNA-seq data from all of the 8 samples into one Seurat object. FindVariableFeatures and ScaleData are performed on this object. It is saved in "./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS". PCA and UMAP projections are calculated for this object and the results are saved in "./data/input/merged_KURAMOCHI_samples1_SCT_umap_2000_n50_scaleT.RDS". The codes for processing this Seurat object can be found in file "./UMAP_visualization.R"
+We merged the scRNA-seq data from all of the 8 samples into one Seurat object. FindVariableFeatures and ScaleData are performed on this object. It is saved in "../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS". PCA and UMAP projections are calculated for this object and the results are saved in "../data/input/merged_KURAMOCHI_samples1_SCT_umap_2000_n50_scaleT.RDS". The codes for processing this Seurat object can be found in file "./UMAP_visualization.R"
 
 ```{r}
-data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
 data2 = data@assays$RNA@scale.data  # scale data is for dimension reduction or clustering
 dim(data2) # 2000 77724
 
 ### UMAP visualization ----------------------------------------------------
 
 data$drugSens[which(data$drugSens == "resistant")] = "post-treatment"
-data2.umap = readRDS("./data/input/merged_KURAMOCHI_samples1_SCT_umap_2000_n50_scaleT.RDS")
+data2.umap = readRDS("../data/input/merged_KURAMOCHI_samples1_SCT_umap_2000_n50_scaleT.RDS")
 
 index = which(data$drugSens %in% c("pre-sensitive", "pre-resistant","post-treatment"))
 
@@ -2203,11 +2204,11 @@ sub_output_dir <- paste0(output_dir, "Figure2/")
 if (!dir.exists(sub_output_dir)) {
   dir.create(sub_output_dir)
 }
-conserve <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
+conserve <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
   select(ensembl, conserve_gene)
 ```
 
-The DEG list from different replicates are merged for each treatment. The values for non-treated control samples are appended to each DEG list for each anti-cancer treatment. The final lists are saved in "./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/"
+The DEG list from different replicates are merged for each treatment. The values for non-treated control samples are appended to each DEG list for each anti-cancer treatment. The final lists are saved in "../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/"
 
 ```{r}
 treatment <- c("Carbo", "Olaparib", "NK")
@@ -2215,7 +2216,7 @@ deg <- NULL
 for (t in treatment){
   tmp <- read.csv(
   paste0(
-    "./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_",
+    "../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_",
     t,
     "_control_bootstrap_permutation_summary.csv")
   )
@@ -2237,7 +2238,7 @@ DEG lists for each CNV groups vs. other cells are calculated on the CSC Puhti se
 for (s in LETTERS[1:5]){
   CNV_deg <- read.csv(
     paste0(
-      "./data/input/CNV_DEG/",
+      "../data/input/CNV_DEG/",
       s,
       "_vs_others_DEG.csv")
     ) %>% 
@@ -2453,14 +2454,14 @@ if (!dir.exists(sub_output_dir)) {
 ```
 
 ```{r}
-data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
 data2 = data@assays$RNA@scale.data  # scale data is for dimension reduction or clustering
 dim(data2) # 2000 77724
 
 ### UMAP visualization ----------------------------------------------------
 
 data$drugSens[which(data$drugSens == "resistant")] = "post-treatment"
-data2.umap = readRDS("./data/input/merged_KURAMOCHI_samples1_SCT_umap_2000_n50_scaleT.RDS")
+data2.umap = readRDS("../data/input/merged_KURAMOCHI_samples1_SCT_umap_2000_n50_scaleT.RDS")
 index = which(data$drugSens %in% c("pre-sensitive", "pre-resistant","post-treatment"))
 ```
 
@@ -2516,7 +2517,7 @@ if (!dir.exists(sub_output_dir)) {
 ```
 
 ```{r message=FALSE}
-data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS") 
+data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS") 
 
 # options(scipen = 999)
 # memory.limit(size = 54000)
@@ -2666,7 +2667,7 @@ data_summary <- function(data, varname, groupnames){
 ## C: COV362 HRD experiment results
 
 ```{r}
-cov <- openxlsx::read.xlsx("./data/input/HRD_experiment/HR_test_Sofia_20221011_to_Shuyu.xlsx", sheet = 1, rows = 1:56, cols = c(1, 10))
+cov <- openxlsx::read.xlsx("../data/input/HRD_experiment/HR_test_Sofia_20221011_to_Shuyu.xlsx", sheet = 1, rows = 1:56, cols = c(1, 10))
 names(cov) <- c("cell", "RAD51")
 # cov$cell <- factor(
 #   rep(c("WT", "WT-control", "WT-BRCA1"), each = 4),
@@ -2758,7 +2759,7 @@ ggsave(
 ## D: COV362 Olaparib killing rate on BRCA +/-
 
 ```{r}
-plot_table <- openxlsx::read.xlsx("./data/input/HRD_experiment/COV362-4-5-6-20220914-6DAY-BLACK.xlsx", rows = 59:73, cols = 2:6)
+plot_table <- openxlsx::read.xlsx("../data/input/HRD_experiment/COV362-4-5-6-20220914-6DAY-BLACK.xlsx", rows = 59:73, cols = 2:6)
 plot_table$`Olaparib.(uM)` <- rep(c("COV362", "COV362-control", "COV362-BRCA1"), each = 4)
 plot_table <- plot_table %>% 
   dplyr::rename("cell" = "Olaparib.(uM)") %>% 
@@ -2840,16 +2841,16 @@ conserve_gene_only <- TRUE
 load data
 
 ```{r}
-data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
-log2FC_table <- read.csv("./data/output/Figure2/Figure2D_log2FC_preR_preS_CNV_subclone.csv")
-conserve <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
+data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+log2FC_table <- read.csv("../data/output/Figure2/Figure2D_log2FC_preR_preS_CNV_subclone.csv")
+conserve <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
   dplyr::select(ensembl, conserve_gene)
 ```
 
 COV362 BRCAness signature
 
 ```{r}
-cov362 <- read.csv("./data/input/BRCAness/deg_COV362.csv")
+cov362 <- read.csv("../data/input/BRCAness/deg_COV362.csv")
 cov362[which(cov362$symbol == "BRCA1"),] # should be negative logFC
 ```
 
@@ -3075,7 +3076,7 @@ data_area <- data.frame(
 )
 for (i in 1:nrow(data_area)){
   table <- read_xlsx(
-    "./data/input/NK_cell_killing_experiment/HRD_NK from 4 donors_JD.xlsx",
+    "../data/input/NK_cell_killing_experiment/HRD_NK from 4 donors_JD.xlsx",
     col_names = c(
       "rate", rep(data_area$control[i], data_area$replicate[i]),
       rep(data_area$brca[i], data_area$replicate[i])
@@ -3204,7 +3205,7 @@ for (i in 1:nrow(data_area)){
 
 ```{r}
 table <- read_xlsx(
-  "./data/input/NK_cell_killing_experiment/COV362-NK-20220417.xlsx", sheet = 2,
+  "../data/input/NK_cell_killing_experiment/COV362-NK-20220417.xlsx", sheet = 2,
   range = "B1:Z7")
 table[1, ] <- t(rep(c("0", "0.5", "1", "2", "3"), each = 5))
 table <- t(table)
@@ -3335,7 +3336,7 @@ ggsave(
 
 ```{r}
 table <- read_xlsx(
-    "./data/input/NK_cell_killing_experiment/NK-UWB-UWB+B1-RPE-B40-FM2587.xlsx", sheet = 2,
+    "../data/input/NK_cell_killing_experiment/NK-UWB-UWB+B1-RPE-B40-FM2587.xlsx", sheet = 2,
   range = "B14:G22")
 table$`NK : cancer` <- rep(c("UWB1.289", "UWB1.289 + BRCA1"), each = 4)
 colnames(table)[1] <- "sample"
@@ -3455,7 +3456,7 @@ ggsave(
 
 ```{r}
 table <- read_xlsx(
-    "./data/input/NK_cell_killing_experiment/Kura-NK-20220417.xlsx", sheet = 2,
+    "../data/input/NK_cell_killing_experiment/Kura-NK-20220417.xlsx", sheet = 2,
   range = "B3:Z9")
 table[1, ] <- t(rep(c("0", "0.5", "1", "2", "3"), each = 5))
 table <- t(table)
@@ -3606,7 +3607,7 @@ if (!dir.exists(sub_output_dir)){
 ```
 
 ```{r}
-data <- readRDS("./data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
 data <- data@meta.data
 ```
 
@@ -3715,12 +3716,12 @@ treatments <- c("Carbo", "NK", "Olaparib")
 ```
 
 ```{r}
-data <- read.csv("./data/input/consensus_signature_drugs.csv", row.names = 1) %>% 
+data <- read.csv("../data/input/consensus_signature_drugs.csv", row.names = 1) %>% 
   t() %>% 
   as.data.frame() %>% 
   rownames_to_column("symbol")
 
-drug_anno <- read.csv("./data/input/drug_repurposing_hub_alldrugsanno.csv")
+drug_anno <- read.csv("../data/input/drug_repurposing_hub_alldrugsanno.csv")
 
 length(setdiff(colnames(data)[-1], c(drug_anno$deprecated_broad_id, drug_anno$broad_id)))
 
@@ -3757,18 +3758,18 @@ Table for log2FCs
 
 ```{r}
 # log2FC for preR-preS-adjusted
-log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
+log2FC_table <- read.csv("../data/output/Figure3/Figure3D_logFC_table_for_plots.csv")
 
 # Bootstrap and permutation P values
-# p <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_Olaparib_control_bootstrap_permutation_summary.csv") %>% 
+# p <- read.csv("../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_Olaparib_control_bootstrap_permutation_summary.csv") %>% 
 #   select(ensembl, symbol, boot_Olaparib_ctrl_p_value, perm_Olaparib_ctrl_p_value) %>% 
 #   left_join(
-#     read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
+#     read.csv("../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
 #       select(ensembl, symbol, boot_Carbo_ctrl_p_value, perm_Carbo_ctrl_p_value),
 #     by = c("ensembl", "symbol")
 #   ) %>% 
 #   left_join(
-#     read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
+#     read.csv("../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
 #       select(ensembl, symbol, boot_NK_ctrl_p_value, perm_NK_ctrl_p_value),
 #     by = c("ensembl", "symbol")
 #   )
@@ -3777,7 +3778,7 @@ log2FC_table <- read.csv("./data/output/Figure3/Figure3D_logFC_table_for_plots.c
 
 # posT-preT signature
 
-posT <- read.csv("./data/input/DEG/deg_at_bt_Carbo_control_wilcox.csv") %>% 
+posT <- read.csv("../data/input/DEG/deg_at_bt_Carbo_control_wilcox.csv") %>% 
   mutate(
     Carbo_log2FC_posT_preT = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2,
     Carbo_log2FC_posT_preT_adj = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
@@ -3789,7 +3790,7 @@ posT <- read.csv("./data/input/DEG/deg_at_bt_Carbo_control_wilcox.csv") %>%
     Carbo_posT_preT_p, Carbo_posT_preT_p_adj
   ) %>% 
   left_join(
-    read.csv("./data/input/DEG/deg_at_bt_Olaparib_control_wilcox.csv") %>% 
+    read.csv("../data/input/DEG/deg_at_bt_Olaparib_control_wilcox.csv") %>% 
     mutate(
       Olaparib_log2FC_posT_preT = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2,
       Olaparib_log2FC_posT_preT_adj = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
@@ -3803,7 +3804,7 @@ posT <- read.csv("./data/input/DEG/deg_at_bt_Carbo_control_wilcox.csv") %>%
     by = c("symbol", "ensembl")
   ) %>% 
   left_join(
-    read.csv("./data/input/DEG/deg_at_bt_NK_control_wilcox.csv") %>% 
+    read.csv("../data/input/DEG/deg_at_bt_NK_control_wilcox.csv") %>% 
     mutate(
       NK_log2FC_posT_preT = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2,
       NK_log2FC_posT_preT_adj = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2 - mean_log2FC_ctrl,
@@ -3822,7 +3823,7 @@ log2FC_table <- log2FC_table %>%
 
 # preR-preS signature without adjusting growth control
 
-preR <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
+preR <- read.csv("../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Carbo_control_bootstrap_permutation.csv") %>% 
   mutate(
     Carbo_log2FC_preR_preS = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2,
     Carbo_preR_preS_p = (Carbo_1_p_val + Carbo_2_p_val) / 2,
@@ -3833,7 +3834,7 @@ preR <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/
     Carbo_preR_preS_p_adj
   ) %>% 
   left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Olaparib_control_bootstrap_permutation.csv") %>% 
+    read.csv("../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_Olaparib_control_bootstrap_permutation.csv") %>% 
     mutate(
       Olaparib_log2FC_preR_preS = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2,
       Olaparib_preR_preS_p = (Olaparib_1_p_val + Olaparib_2_p_val) / 2,
@@ -3846,7 +3847,7 @@ preR <- read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/
     by = c("symbol", "ensembl")
   ) %>% 
   left_join(
-    read.csv("./data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
+    read.csv("../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/deg_prer_pres_NK_control_bootstrap_permutation.csv") %>% 
     mutate(
       NK_log2FC_preR_preS = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2,
       NK_preR_preS_p = (NK_1_p_val + NK_2_p_val) / 2,
@@ -4779,8 +4780,8 @@ for (t in treatments){
 Validate with drug combination screening data from DrugComb
 
 ```{r}
-DrugComb_drug <- read.csv("./data/input/DrugComb_all_drug.csv")
-olaparib_combo <- read.csv("./data/input/DrugComb_summary_Olaparib.csv") %>% 
+DrugComb_drug <- read.csv("../data/input/DrugComb_all_drug.csv")
+olaparib_combo <- read.csv("../data/input/DrugComb_summary_Olaparib.csv") %>% 
   filter(drug_col != "NULL")
 olaparib_combo <- olaparib_combo %>% 
   mutate(drug = ifelse(drug_row == "Olaparib", drug_col, drug_row))
@@ -4792,7 +4793,7 @@ olaparib_combo <- olaparib_combo %>%
   filter(drug %in% drugs_combo$dname) %>% 
   left_join(select(drugs_combo, dname, inchikey), by = c("drug" = "dname"))
 
-olaparib_correlation <- read.csv("./data/output/test/Olaparib_correlation_preR_vs_drug_signature_sister_conserved.csv") %>% 
+olaparib_correlation <- read.csv("../data/output/test/Olaparib_correlation_preR_vs_drug_signature_sister_conserved.csv") %>% 
   filter(InChIKey %in% olaparib_combo$inchikey) %>% 
   select(InChIKey, starts_with("pearson"))
 
@@ -4841,8 +4842,8 @@ dev.off()
 ```
 
 ```{r}
-DrugComb_drug <- read.csv("./data/input/DrugComb_all_drug.csv")
-olaparib_combo <- read.csv("./data/input/DrugComb_summary_Olaparib.csv") %>% 
+DrugComb_drug <- read.csv("../data/input/DrugComb_all_drug.csv")
+olaparib_combo <- read.csv("../data/input/DrugComb_summary_Olaparib.csv") %>% 
   filter(drug_col != "NULL")
 olaparib_combo <- olaparib_combo %>% 
   mutate(drug = ifelse(drug_row == "Olaparib", drug_col, drug_row))
@@ -4854,7 +4855,7 @@ olaparib_combo <- olaparib_combo %>%
   filter(drug %in% drugs_combo$dname) %>% 
   left_join(select(drugs_combo, dname, inchikey), by = c("drug" = "dname"))
 
-olaparib_correlation <- read.csv("./data/output/test/Olaparib_correlation_preR_vs_drug_signature.csv") %>% 
+olaparib_correlation <- read.csv("../data/output/test/Olaparib_correlation_preR_vs_drug_signature.csv") %>% 
   filter(InChIKey %in% olaparib_combo$inchikey) %>% 
   select(InChIKey, starts_with("pearson"))
 
@@ -4920,10 +4921,10 @@ if(!dir.exists(combo_sub_dir)){
 
 ### First batch
 
-The % inhibition of drug combination validation experiments are from Jun Dai. They are saved in the file "./data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx". It is already in the synergyfinder input table format.
+The % inhibition of drug combination validation experiments are from Jun Dai. They are saved in the file "../data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx". It is already in the synergyfinder input table format.
 
 ```{r eval=FALSE, include=FALSE}
-table <- read_xlsx("./data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx")
+table <- read_xlsx("../data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx")
 
 table$conc_unit1 <- table$conc_unit
 table$conc_unit2 <- table$conc_unit
@@ -4939,10 +4940,10 @@ saveRDS(table, file = paste0(combo_sub_dir, "synergyfinder_object_with_score_fir
 
 ### Second batch
 
-The % inhibition of drug combination validation experiments are from Jing Jiang. They are saved in the file "./data/input/drug_combination_raw_experiment_data/KURU-29-olaparibb.xlsx". It is already in the synergyfinder input table format.
+The % inhibition of drug combination validation experiments are from Jing Jiang. They are saved in the file "../data/input/drug_combination_raw_experiment_data/KURU-29-olaparibb.xlsx". It is already in the synergyfinder input table format.
 
 ```{r eval=FALSE, include=FALSE}
-table <- read.csv("./data/input/drug_combination_raw_experiment_data/merged_template_2022_11_9.csv")
+table <- read.csv("../data/input/drug_combination_raw_experiment_data/merged_template_2022_11_9.csv")
 
 table <- ReshapeData(table, data_type = "inhibition")
 table <- CalculateSynergy(table)
@@ -4953,10 +4954,10 @@ saveRDS(table, file = paste0(combo_sub_dir, "synergyfinder_object_with_score_sec
 
 ### Third batch
 
-The % inhibition of drug combination validation experiments are from Jun. They are saved in the file "./data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx". It is already in the synergyfinder input table format.
+The % inhibition of drug combination validation experiments are from Jun. They are saved in the file "../data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx". It is already in the synergyfinder input table format.
 
 ```{r eval=FALSE, include=FALSE}
-table <- read_xlsx("./data/input/drug_combination_raw_experiment_data/KURU-29-olaparibb.xlsx")
+table <- read_xlsx("../data/input/drug_combination_raw_experiment_data/KURU-29-olaparibb.xlsx")
 
 table <- ReshapeData(table, data_type = "inhibition")
 table <- CalculateSynergy(table)
@@ -4973,18 +4974,18 @@ selected_blocks <- list(
   "batch2" = c(5, 6, 7, 18, 19),
   "batch3" = 1)
 template <- NULL
-tmp <- read_xlsx("./data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx") %>% 
+tmp <- read_xlsx("../data/input/ReSisTrace_drug_combination_validatiion/Drug_combination_inhibition_ReSisTrace_20221025.xlsx") %>% 
   filter(block_id %in% selected_blocks[[1]]) %>% 
   mutate(block_id = paste0("1-", block_id)) %>% 
   mutate(conc_unit1 = conc_unit, conc_unit2 = conc_unit) %>% 
   select(-conc_unit)
 template <- rbind.data.frame(template, tmp)
-tmp <- read.csv("./data/input/drug_combination_raw_experiment_data/merged_template_2022_11_9.csv") %>% 
+tmp <- read.csv("../data/input/drug_combination_raw_experiment_data/merged_template_2022_11_9.csv") %>% 
   filter(block_id %in% selected_blocks[[2]]) %>% 
   mutate(block_id = paste0("2-", block_id))
 template <- rbind.data.frame(template, tmp)
 
-tmp <- read_xlsx("./data/input/drug_combination_raw_experiment_data/KURU-29-olaparibb.xlsx") %>% 
+tmp <- read_xlsx("../data/input/drug_combination_raw_experiment_data/KURU-29-olaparibb.xlsx") %>% 
   filter(block_id %in% selected_blocks[[3]]) %>% 
   mutate(block_id = paste0("3-", block_id)) %>% 
   mutate(conc_unit1 = conc_unit, conc_unit2 = conc_unit) %>% 
@@ -5409,9 +5410,9 @@ if (!dir.exists(sub_output_dir)){
 ```
 
 ```{r}
-data_clinical_patient = read.delim("./data/input/BRCAness/data_clinical_patient.txt", skip = 4)
-data_clinical_sample = read.delim("./data/input/BRCAness/data_clinical_sample.txt", skip = 4)
-data_mrna = readRDS("./data/input/BRCAness/EOC_deconv_TCGA_expr_mat.RDS")
+data_clinical_patient = read.delim("../data/input/BRCAness/data_clinical_patient.txt", skip = 4)
+data_clinical_sample = read.delim("../data/input/BRCAness/data_clinical_sample.txt", skip = 4)
+data_mrna = readRDS("../data/input/BRCAness/EOC_deconv_TCGA_expr_mat.RDS")
 colnames(data_mrna) = gsub("\\.","\\-", colnames(data_mrna))
 colnames(data_mrna) = substr(colnames(data_mrna), 1, 15)
 data_mrna <- data_mrna[apply(data_mrna, 1, function(x){
@@ -5433,7 +5434,7 @@ status[which(status == "")] = NA
 
 length(which(is.na(time)==F)) # 270 has survival
 length(which(is.na(status)==F)) # 271 has status
-cov362 <- read.csv("./data/input/BRCAness/deg_COV362.csv")
+cov362 <- read.csv("../data/input/BRCAness/deg_COV362.csv")
 ```
 
 #### Test for good p value
@@ -5588,7 +5589,7 @@ print(s)
 ## E KURAMOCHI HRD experiment results
 
 ```{r}
-kuramochi <- openxlsx::read.xlsx("./data/input/HRD_experiment/HR_test_Sofia_20221011_to_Shuyu.xlsx", sheet = 2, rows = 1:99, cols = c(2, 11))
+kuramochi <- openxlsx::read.xlsx("../data/input/HRD_experiment/HR_test_Sofia_20221011_to_Shuyu.xlsx", sheet = 2, rows = 1:99, cols = c(2, 11))
 names(kuramochi) <- c("cell", "RAD51")
 kuramochi$cell <- factor(
   rep(c("Kuramochi", "Kuramochi + ctrl vector", "Kuramochi + BRCA2"), each = 4),
@@ -5657,7 +5658,7 @@ ggsave(
 ## F:UWB HRD experiment results
 
 ```{r}
-uwb <- openxlsx::read.xlsx("./data/input/HRD_experiment/HR_test_Sofia_20221011_to_Shuyu.xlsx", sheet = 1, rows = c(1, 62:139), cols = c(1, 10))
+uwb <- openxlsx::read.xlsx("../data/input/HRD_experiment/HR_test_Sofia_20221011_to_Shuyu.xlsx", sheet = 1, rows = c(1, 62:139), cols = c(1, 10))
 names(uwb) <- c("cell", "RAD51")
 uwb$cell <- factor(
   rep(c("UWB1.289", "UWB1.289 + BRCA1"), each = 4),
@@ -5726,7 +5727,7 @@ ggsave(
 
 ```{r}
 control <- openxlsx::read.xlsx(
-  "./data/input/HRD_experiment/UWB1.289 UWB1.289+BRCA1 Olaparib 4days-20210517-new.xlsx",
+  "../data/input/HRD_experiment/UWB1.289 UWB1.289+BRCA1 Olaparib 4days-20210517-new.xlsx",
   rows = 46:49,
   cols = 4:12
 )
@@ -5736,7 +5737,7 @@ control <- control %>%
   mutate(cell = "UWB1.289")
 
 BRCA <- openxlsx::read.xlsx(
-  "./data/input/HRD_experiment/UWB1.289 UWB1.289+BRCA1 Olaparib 4days-20210517-new.xlsx",
+  "../data/input/HRD_experiment/UWB1.289 UWB1.289+BRCA1 Olaparib 4days-20210517-new.xlsx",
   rows = 51:53,
   cols = 4:12
 )
@@ -5815,7 +5816,7 @@ if (!dir.exists(sub_output_dir)){
 ```
 
 ```{r}
-scRNA <- readRDS("./data/input/scRNA_seq_for_drug_signature/drug_induced_sample_all_merged.RDS")
+scRNA <- readRDS("../data/input/scRNA_seq_for_drug_signature/drug_induced_sample_all_merged.RDS")
 ```
 
 ### UMAP
@@ -5859,7 +5860,7 @@ treatments <- setdiff(treatments, "DMSO")
 for (t in treatments){
   deg <- read.csv(
     paste0(
-      "./data/input/scRNA_seq_for_drug_signature/DEG/deg_",
+      "../data/input/scRNA_seq_for_drug_signature/DEG/deg_",
       gsub(" ", "_", t),
       "_merge_DMSO_wilcox.csv"
     )
@@ -5935,12 +5936,12 @@ if (!dir.exists(sub_output_dir)){
 ```
 
 ```{r}
-scRNA <- readRDS("./data/input/scRNA_seq_for_drug_signature/drug_induced_sample_all_merged.RDS")
-sig <- read.csv("./data/input/scRNA_seq_for_drug_signature/preR_preS_drug_signature_all.csv")
+scRNA <- readRDS("../data/input/scRNA_seq_for_drug_signature/drug_induced_sample_all_merged.RDS")
+sig <- read.csv("../data/input/scRNA_seq_for_drug_signature/preR_preS_drug_signature_all.csv")
 con_score <- list(
-  Carbo = read.csv("./data/input/scRNA_seq_for_drug_signature/Carbo_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
-  Olaparib = read.csv("./data/input/scRNA_seq_for_drug_signature/Olaparib_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
-  NK = read.csv("./data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
+  Carbo = read.csv("../data/input/scRNA_seq_for_drug_signature/Carbo_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  Olaparib = read.csv("../data/input/scRNA_seq_for_drug_signature/Olaparib_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  NK = read.csv("../data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
   )
 ```
 
@@ -6145,7 +6146,7 @@ total_meta_data <- NULL
 
 for (s in samples){
   for (time_point in c("pre", "post")) {
-    sample_path <- paste0("./data/input/scRNAseq_raw_gene_count_matrix/scLT-2-", time_point, "-", s, "/") 
+    sample_path <- paste0("../data/input/scRNAseq_raw_gene_count_matrix/scLT-2-", time_point, "-", s, "/") 
     # load count data
     data <- Read10X(sample_path, gene.column = 1) # Use Ensembl ID as the row names
     data <- CreateSeuratObject(counts = data, project = paste0(time_point, "-treatment"), min.cells = 3) # remove genes expressed in less than 3 cells
@@ -6180,7 +6181,7 @@ total_meta_data2 <- total_meta_data %>%
 Histograms for UMI counts
 
 ```{r}
-thresholds <- read_xlsx("./data/inkscape/Nature Communication 2/tables/Supplementary Data 10.xlsx") %>% 
+thresholds <- read_xlsx("../data/inkscape/Nature Communication 2/tables/Supplementary Data 10.xlsx") %>% 
   mutate(
     Treatment = case_when(
       Treatment == "Carbo1" ~ "Carboplatin 1",
@@ -6255,9 +6256,9 @@ if (!dir.exists(sub_output_dir)){
 
 ```{r}
 treatments <- c("Carboplatin", "Olaparib", "NK", "Control")
-conserve_gene <- read.csv("./data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv")
+conserve_gene <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv")
 for (treatment in treatments){
-  deg <- read.csv(paste0("./data/input/DEG/deg_prer_pres_in_singleton_", treatment, "_intersection.csv"))
+  deg <- read.csv(paste0("../data/input/DEG/deg_prer_pres_in_singleton_", treatment, "_intersection.csv"))
   if (!"sister_conserve_gene" %in% names(deg)) {
     deg <- deg %>% 
       left_join(
@@ -6330,3 +6331,117 @@ for (treatment in treatments){
 }
 
 ```
+
+# Revision round 3
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "revision3/")
+
+if (!dir.exists(sub_output_dir)) {
+  dir.create(sub_output_dir)
+}
+```
+
+```{r}
+data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+data$drugSens[which(data$drugSens == "resistant")] = "post-treatment"
+```
+
+```{r}
+data <- RunPCA(data)
+ElbowPlot(data, ndims = 50)
+```
+
+```{r}
+data <- RunUMAP(data, dims = 1:50)
+```
+
+```{r}
+data <- FindNeighbors(data, dims = 1:30, k.param = 8)
+data <- FindClusters(data, resolution = 0.8)
+```
+
+```{r}
+class <- data@meta.data %>% 
+  filter(drugSens %in% c("pre-resistant", "pre-sensitive", "post-treatment"))
+table_freq <- as.data.frame(table(class$seurat_clusters, class$drugSens, class$treatment))
+colnames(table_freq) <- c("cluster", "drug_sensitivity", "treatment", "cell_count")
+```
+
+```{r}
+ggplot(table_freq, aes(x = cluster, y = cell_count, fill = drug_sensitivity)) + 
+  geom_bar(position="dodge", stat="identity") +
+  facet_grid(rows = vars(treatment))
+
+```
+
+```{r}
+data2.umap = readRDS("../data/input/merged_KURAMOCHI_samples1_SCT_umap_2000_n50_scaleT.RDS")
+index = which(data$drugSens %in% c("pre-sensitive", "pre-resistant","post-treatment"))
+```
+
+```{r}
+pdf(
+      paste(sub_output_dir, "clusters.pdf",sep=""),
+      width = 3.7, height = 3.5, pointsize = 10)
+    
+    index1 = which(data$drugSens == j & data$treatment == i)
+    # if(j == "pre-resistant") color = red
+    # if(j == "pre-sensitive") color = blue
+    # if(j == "post-treatment") color = brown
+    if(i == "Olaparib") color = red
+    if(i == "Carboplatin") color = blue
+    if(i == "NK") color = brown
+    if(i == "Control") color = green
+    scatterplot(
+      data2.umap$layout[index1, 1],
+      data2.umap$layout[index1, 2], cex = 0.5, cex.main = 1.4, cex.axis = 1.2,
+      col = color, main = paste(i,j),
+      boxplots = FALSE, las = 1, smooth = FALSE, grid = TRUE,
+      regLine = FALSE, ellipse = TRUE, pch = 20, 
+      xlim = c(-10,10), ylim = c(-10,10),
+      legend = list(title = "treatment", coords = "topleft"),
+      # xlab = "UMAP 1", ylab = "UMAP 2"
+      xlab = "", ylab = ""
+      )
+    dev.off()
+```
+
+
+```{r}
+# individual treatment conditions
+for(i in unique(data$treatment)){
+  for(j in c("pre-sensitive", "pre-resistant", "post-treatment")){
+    pdf(
+      paste(sub_output_dir, "FigureS3A_", paste(i, j, sep="_"),".pdf",sep=""),
+      width = 3.7, height = 3.5, pointsize = 10)
+    
+    index1 = which(data$drugSens == j & data$treatment == i)
+    # if(j == "pre-resistant") color = red
+    # if(j == "pre-sensitive") color = blue
+    # if(j == "post-treatment") color = brown
+    if(i == "Olaparib") color = red
+    if(i == "Carboplatin") color = blue
+    if(i == "NK") color = brown
+    if(i == "Control") color = green
+    scatterplot(
+      data2.umap$layout[index1, 1],
+      data2.umap$layout[index1, 2], cex = 0.5, cex.main = 1.4, cex.axis = 1.2,
+      col = color, main = paste(i,j),
+      boxplots = FALSE, las = 1, smooth = FALSE, grid = TRUE,
+      regLine = FALSE, ellipse = TRUE, pch = 20, 
+      xlim = c(-10,10), ylim = c(-10,10),
+      legend = list(title = "treatment", coords = "topleft"),
+      # xlab = "UMAP 1", ylab = "UMAP 2"
+      xlab = "", ylab = ""
+      )
+    dev.off()
+    cat(i, ", ", j, ", ", sum(index1), "\n")
+  }
+  print(i)
+  print(t.test(data2.umap$layout[which(data$drugSens == "pre-resistant" & data$treatment == i), 1], data2.umap$layout[which(data$drugSens == "pre-sensitive" & data$treatment == i),1]))
+  print(t.test(data2.umap$layout[which(data$drugSens == "pre-resistant" & data$treatment == i), 2], data2.umap$layout[which(data$drugSens == "pre-sensitive" & data$treatment == i),2]))
+}
+```
+
