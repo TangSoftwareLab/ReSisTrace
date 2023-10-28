@@ -2612,7 +2612,7 @@ ggplot(
   # ) + 
   geom_text(
     aes(y=sig_y, label=sig),
-    position=position_dodge(width=.9),
+    position=position_dodge(width=.8),
     size = 21/.pt
   ) + 
   labs(x="", y="Connectivity score", fill = "") +
@@ -2684,8 +2684,8 @@ for (t in treatments){
     }
   }
 }
-plot_table$sig_y <- plot_table$connectivity_score + 0.05
-plot_table$sig_y[plot_table$connectivity_score < 0] <- plot_table$connectivity_score[plot_table$connectivity_score < 0] - 0.05
+plot_table$sig_y[plot_table$connectivity_score >= 0] <- plot_table$connectivity_score[plot_table$connectivity_score >= 0] + 0.01
+plot_table$sig_y[plot_table$connectivity_score < 0] <- plot_table$connectivity_score[plot_table$connectivity_score < 0] - 0.03
 write.csv(plot_table, paste0(sub_output_dir, "Figure2D_connectivity_score_p.csv"),
           row.names = FALSE)
 ```
@@ -2723,6 +2723,9 @@ ggplot(
      )
 ggsave(
   paste0(sub_output_dir, "Figure2D_connectivity_score_color_by_subclones_p.pdf"),
+  width = 9.3, height = 5.5)
+ggsave(
+  paste0(sub_output_dir, "Figure2D_connectivity_score_color_by_subclones_p.png"),
   width = 9.3, height = 5.5)
 ```
 
@@ -3112,7 +3115,7 @@ ggsave(
 
 ## E: Box plot for connectivity scores of BRCAness signature vs. pre-sensitivity signatures (seurat logFC)
 
-### DEG adjusted by growth control
+### logFC adjused by growth control
 
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
@@ -3166,7 +3169,7 @@ Filter out sister-discordant genes
 plot_table <- filter(log2FC_table, conserve_gene)
 ```
 
-GWC connectivity score
+#### GWC connectivity score
 
 pre-resistant adjusted control vs COV362 HRD
 
@@ -3318,7 +3321,7 @@ ggplot2::ggsave(
 )
 ```
 
-### Original DEG (without growth control adjustment)
+### Original logFC (without adjustment of growth control)
 
 ```{r}
 rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
@@ -3337,7 +3340,7 @@ conserve_gene_only <- TRUE
 ```
 
 ```{r}
-data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
+# data <- readRDS("../data/input/merged_KURAMOCHI_samples1_scaled_new.RDS")
 log2FC_table <- read.csv("../data/output/Figure2/Figure2D_original_DEG/Figure2D_log2FC_preR_preS_CNV_subclone.csv")
 ```
 
@@ -3354,7 +3357,8 @@ log2FC_table <- full_join(
   cov362 %>% 
     select(
       ensembl, symbol, BRCAness_cov_logFC = avg_log2FC,
-      BRCAness_cov_p_adj = p_val_adj
+      BRCAness_cov_p_adj = p_val_adj,
+      BRCAness_cov_p = p_val
     ),
   by = c("ensembl", "symbol")
 )
@@ -3370,20 +3374,22 @@ Filter out sister-discordant genes
 plot_table <- filter(log2FC_table, conserve_gene)
 ```
 
-GWC connectivity score
-
-pre-resistant adjusted control vs COV362 HRD
-
 ```{r}
 min_p = 5 * 10^-16 # around 200 sister concordant BRCAness genes
 max_p = 0.05
 p_threshold <- c(lseq(min_p, max_p, 20), 1 * 10 ^ -c(2:14), 5 * 10 ^ -c(2:14))
+```
 
+#### GWC connectivity score
+
+pre-resistant adjusted control vs COV362 HRD
+
+```{r}
 res = mat.or.vec(length(p_threshold), 6)
 colnames(res) <- c("p_threshold", "n_gene", "Olaparib", "Carboplatin", "NK", "Control")
 ```
 
-#### PreR-preS adjusted P value
+##### PreR-preS adjusted P value
 
 ```{r}
 res = mat.or.vec(length(p_threshold), 10)
@@ -3531,7 +3537,7 @@ ggplot2::ggsave(
 )
 ```
 
-#### PreR-preS original P value
+##### PreR-preS original P value
 
 ```{r}
 res = mat.or.vec(length(p_threshold), 10)
@@ -3671,6 +3677,421 @@ ggplot2::ggsave(
   paste0(
     sub_output_dir,
     "Figure3E_HRD_preRpreS_gwc_connect_cov_weighted_spearman_p_value_",
+    ifelse(conserve_gene_only, "_conserve_gene.png", ".png")
+  ),
+  p,
+  #width = 5, height = 4
+  width = 6, height = 5
+)
+```
+
+##### PreR-preS original P value HRD original P value
+
+```{r}
+res = mat.or.vec(length(p_threshold), 10)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Olaparib_p", "Carboplatin_score",
+  "Carboplatin_p", "NK_score", "NK_p", "Control_score", "Control_p")
+set.seed(123)
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>% 
+    dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS"), ends_with("_preR_preS_p")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  BRCA_genes <- table_tests %>% 
+    dplyr::mutate(value = BRCAness_cov_logFC, sig = BRCAness_cov_p) %>% 
+    dplyr::select(value, sig)
+  
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Olaparib_log2FC_preR_preS, sig = Olaparib_preR_preS_p) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "Olaparib_score"] <- connect["score"]
+  res[i, "Olaparib_p"] <- connect["p"]
+  
+  # Carboplatin
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Carbo_log2FC_preR_preS, sig = Carbo_preR_preS_p) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "Carboplatin_score"] <- connect["score"]
+  res[i, "Carboplatin_p"] <- connect["p"]
+  
+  # NK
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = NK_log2FC_preR_preS, sig = NK_preR_preS_p) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "NK_score"] <- connect["score"]
+  res[i, "NK_p"] <- connect["p"]
+
+  # Control
+  tmp <- table_tests %>% 
+    dplyr::mutate(value = Control_log2FC_preR_preS, sig = Control_preR_preS_p) %>% 
+    dplyr::select(value, sig)
+  connect <- connectivityScore(x = tmp, y = BRCA_genes, method = "gwc", gwc.method='spearman', nperm=300)
+  res[i, "Control_score"] <- connect["score"]
+  res[i, "Control_p"] <- connect["p"]
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3E_HRD_origin_p_preRpreS_gwc_connect_cov_weighted_spearman_p_value_", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+Box plot
+
+```{r}
+## preR + HRD
+res3 <- read.csv(
+  paste0(sub_output_dir,"Figure3E_HRD_origin_p_preRpreS_gwc_connect_cov_weighted_spearman_p_value_", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", Control = "Control_score", "p_threshold")
+res3 <- res3[1:20, ]
+res3.df = reshape2::melt(res3, id.vars = "p_threshold", variable.name = "treatment")
+res3.df$group = "COV362"
+
+res3.df
+res3.df$treatment <- factor(res3.df$treatment, levels = c("Carboplatin", "Olaparib", "NK", "Control"))
+
+stat.test <- res3.df %>%
+  # dplyr::group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "Control") %>%
+  # add_xy_position(
+  #   x = "group", dodge = 0.8,
+  #   step.increase = 0.05
+  # ) %>%
+  add_xy_position(
+  x = "treatment", dodge = 0.8,
+  step.increase = 0.12) %>%
+  add_significance("p")
+stat.test
+p <- ggboxplot(
+  res3.df,
+  x = "treatment", y = "value", fill = "treatment",
+  outlier.shape = NA
+) +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    # bracket.nudge.y = -0.01,
+    size = 4,
+    label.size = 10
+  ) +
+  scale_y_continuous(limits = c(-0.7, -0.25), expand = c(0, 0)) +
+  # geom_point(
+  #   data = res.df[res.df$treatment !="Control",],
+  #   mapping = aes(x = group, y = value, fill = treatment),
+  #   position = position_jitterdodge(jitter.width = 0.5),
+  #   size = 1,
+  #   alpha = 0.5
+  # ) +
+  labs(x = "", y = "Connectivity score", fill = "")+
+  theme_classic() + 
+  theme(
+    # legend.position = "top",
+    legend.position = "none",
+    text = element_text(size = 21),
+    axis.title = element_text(size = , color = "black"),
+    axis.text = element_text(
+      size = 20,
+      color = "black"#,
+      #angle = 45,
+      #hjust = 1
+    ),
+    legend.text = element_text(size = 21, color = "black")
+  ) +
+  scale_fill_manual(values = c(green, brown, purple, "grey"))
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3E_HRD_origin_p_preRpreS_gwc_connect_cov_weighted_spearman_p_value_",
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  p,
+  width = 5, height = 4
+  #width = 6, height = 5
+)
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3E_HRD_origin_p_preRpreS_gwc_connect_cov_weighted_spearman_p_value_",
+    ifelse(conserve_gene_only, "_conserve_gene.png", ".png")
+  ),
+  p,
+  #width = 5, height = 4
+  width = 6, height = 5
+)
+```
+
+#### Correlation coefficient
+
+##### Spearman
+
+```{r}
+res = mat.or.vec(length(p_threshold), 10)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Olaparib_p", "Carboplatin_score",
+  "Carboplatin_p", "NK_score", "NK_p", "Control_score", "Control_p")
+set.seed(123)
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>%  
+    dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS"), ends_with("_preR_preS_p")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$Olaparib_log2FC_preR_preS, method = "spearman")
+  res[i, "Olaparib_score"] <- cor$estimate
+  res[i, "Olaparib_p"] <- cor$p.value
+  
+  # Carboplatin
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$Carbo_log2FC_preR_preS, method = "spearman")
+  res[i, "Carboplatin_score"] <- cor$estimate
+  res[i, "Carboplatin_p"] <- cor$p.value
+  
+  # NK
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$NK_log2FC_preR_preS, method = "spearman")
+  res[i, "NK_score"] <- cor$estimate
+  res[i, "NK_p"] <- cor$p.value
+
+  # Control
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$Control_log2FC_preR_preS, method = "spearman")
+  res[i, "Control_score"] <- cor$estimate
+  res[i, "Control_p"] <- cor$p.value
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3E_HRD_preRpreS_spearman_correlation_p_value_", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+Box plot
+
+```{r}
+## preR + HRD
+res3 <- read.csv(
+  paste0(sub_output_dir,"Figure3E_HRD_preRpreS_spearman_correlation_p_value_", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", Control = "Control_score", "p_threshold")
+res3 <- res3[1:20, ]
+res3.df = reshape2::melt(res3, id.vars = "p_threshold", variable.name = "treatment")
+res3.df$group = "COV362"
+
+res3.df
+res3.df$treatment <- factor(res3.df$treatment, levels = c("Carboplatin", "Olaparib", "NK", "Control"))
+
+stat.test <- res3.df %>%
+  # dplyr::group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "Control") %>%
+  # add_xy_position(
+  #   x = "group", dodge = 0.8,
+  #   step.increase = 0.05
+  # ) %>%
+  add_xy_position(
+  x = "treatment", dodge = 0.8,
+  step.increase = 0.12) %>%
+  add_significance("p")
+stat.test
+p <- ggboxplot(
+  res3.df,
+  x = "treatment", y = "value", fill = "treatment",
+  outlier.shape = NA
+) +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    # bracket.nudge.y = -0.01,
+    size = 4,
+    label.size = 10
+  ) +
+  scale_y_continuous(limits = c(-0.6, -0.2), expand = c(0, 0)) +
+  # geom_point(
+  #   data = res.df[res.df$treatment !="Control",],
+  #   mapping = aes(x = group, y = value, fill = treatment),
+  #   position = position_jitterdodge(jitter.width = 0.5),
+  #   size = 1,
+  #   alpha = 0.5
+  # ) +
+  labs(x = "", y = "Connectivity score", fill = "")+
+  theme_classic() + 
+  theme(
+    # legend.position = "top",
+    legend.position = "none",
+    text = element_text(size = 21),
+    axis.title = element_text(size = , color = "black"),
+    axis.text = element_text(
+      size = 20,
+      color = "black"#,
+      #angle = 45,
+      #hjust = 1
+    ),
+    legend.text = element_text(size = 21, color = "black")
+  ) +
+  scale_fill_manual(values = c(green, brown, purple, "grey"))
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3E_HRD_preRpreS_spearman_correlation_p_value_",
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  p,
+  width = 5, height = 4
+  #width = 6, height = 5
+)
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3E_HRD_preRpreS_spearman_correlation_p_value_",
+    ifelse(conserve_gene_only, "_conserve_gene.png", ".png")
+  ),
+  p,
+  #width = 5, height = 4
+  width = 6, height = 5
+)
+```
+##### Pearson
+
+```{r}
+res = mat.or.vec(length(p_threshold), 10)
+colnames(res) <- c(
+  "p_threshold", "n_gene", "Olaparib_score", "Olaparib_p", "Carboplatin_score",
+  "Carboplatin_p", "NK_score", "NK_p", "Control_score", "Control_p")
+set.seed(123)
+for(i in 1:length(p_threshold)){
+  table_tests <- plot_table %>%  
+    dplyr::filter(BRCAness_cov_p_adj <= p_threshold[i]) %>% 
+    dplyr::select(ensembl, starts_with("BRCAness_cov"), ends_with("log2FC_preR_preS"), ends_with("_preR_preS_p")) %>% 
+    tibble::column_to_rownames("ensembl") %>% 
+    na.omit()
+  cat('\r', i)
+  
+  res[i, "p_threshold"] <- p_threshold[i]
+  res[i, "n_gene"] <- nrow(table_tests)
+  
+  # Olaparib
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$Olaparib_log2FC_preR_preS, method = "pearson")
+  res[i, "Olaparib_score"] <- cor$estimate
+  res[i, "Olaparib_p"] <- cor$p.value
+  
+  # Carboplatin
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$Carbo_log2FC_preR_preS, method = "pearson")
+  res[i, "Carboplatin_score"] <- cor$estimate
+  res[i, "Carboplatin_p"] <- cor$p.value
+  
+  # NK
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$NK_log2FC_preR_preS, method = "pearson")
+  res[i, "NK_score"] <- cor$estimate
+  res[i, "NK_p"] <- cor$p.value
+
+  # Control
+  cor <- cor.test(table_tests$BRCAness_cov_logFC, table_tests$Control_log2FC_preR_preS, method = "pearson")
+  res[i, "Control_score"] <- cor$estimate
+  res[i, "Control_p"] <- cor$p.value
+}
+write.csv(
+  res,
+  paste0(sub_output_dir,"Figure3E_HRD_preRpreS_pearson_correlation_p_value_", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv")),
+  row.names = FALSE
+)
+```
+
+Box plot
+
+```{r}
+## preR + HRD
+res3 <- read.csv(
+  paste0(sub_output_dir,"Figure3E_HRD_preRpreS_pearson_correlation_p_value_", ifelse(conserve_gene_only, "_conserve_gene.csv", ".csv"))
+  ) %>% 
+  dplyr::select(
+    Olaparib = "Olaparib_score", Carboplatin = "Carboplatin_score",
+    NK = "NK_score", Control = "Control_score", "p_threshold")
+res3 <- res3[1:20, ]
+res3.df = reshape2::melt(res3, id.vars = "p_threshold", variable.name = "treatment")
+res3.df$group = "COV362"
+
+res3.df
+res3.df$treatment <- factor(res3.df$treatment, levels = c("Carboplatin", "Olaparib", "NK", "Control"))
+
+stat.test <- res3.df %>%
+  # dplyr::group_by(group) %>%
+  t_test(value ~ treatment, ref.group = "Control") %>%
+  # add_xy_position(
+  #   x = "group", dodge = 0.8,
+  #   step.increase = 0.05
+  # ) %>%
+  add_xy_position(
+  x = "treatment", dodge = 0.8,
+  step.increase = 0.12) %>%
+  add_significance("p")
+stat.test
+p <- ggboxplot(
+  res3.df,
+  x = "treatment", y = "value", fill = "treatment",
+  outlier.shape = NA
+) +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.signif", tip.length = 0.01,
+    # bracket.nudge.y = -0.01,
+    size = 4,
+    label.size = 10
+  ) +
+  scale_y_continuous(limits = c(-0.6, -0.15), expand = c(0, 0)) +
+  # geom_point(
+  #   data = res.df[res.df$treatment !="Control",],
+  #   mapping = aes(x = group, y = value, fill = treatment),
+  #   position = position_jitterdodge(jitter.width = 0.5),
+  #   size = 1,
+  #   alpha = 0.5
+  # ) +
+  labs(x = "", y = "Connectivity score", fill = "")+
+  theme_classic() + 
+  theme(
+    # legend.position = "top",
+    legend.position = "none",
+    text = element_text(size = 21),
+    axis.title = element_text(size = , color = "black"),
+    axis.text = element_text(
+      size = 20,
+      color = "black"#,
+      #angle = 45,
+      #hjust = 1
+    ),
+    legend.text = element_text(size = 21, color = "black")
+  ) +
+  scale_fill_manual(values = c(green, brown, purple, "grey"))
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3E_HRD_preRpreS_pearson_correlation_p_value_",
+    ifelse(conserve_gene_only, "_conserve_gene.pdf", ".pdf")
+  ),
+  p,
+  width = 5, height = 4
+  #width = 6, height = 5
+)
+ggplot2::ggsave(
+  paste0(
+    sub_output_dir,
+    "Figure3E_HRD_preRpreS_pearson_correlation_p_value_",
     ifelse(conserve_gene_only, "_conserve_gene.png", ".png")
   ),
   p,
@@ -4508,6 +4929,18 @@ preR <- read.csv("../data/input/DEG_filter_by_bootstrap_permutation_in_singleton
       symbol, ensembl, NK_log2FC_preR_preS, NK_preR_preS_p, NK_preR_preS_p_adj
     ),
     by = c("symbol", "ensembl")
+  ) %>% 
+  left_join(
+    read.csv("../data/input/DEG/deg_prer_pres_in_singleton_Control_intersection.csv") %>% 
+    mutate(
+      Control_log2FC_preR_preS = (scLT_ctrl_1_avg_log2FC + scLT_ctrl_2_avg_log2FC) / 2,
+      Control_preR_preS_p = (scLT_ctrl_1_p_val + scLT_ctrl_2_p_val) / 2,
+      Control_preR_preS_p_adj = (scLT_ctrl_1_p_val_adj + scLT_ctrl_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, Control_log2FC_preR_preS, Control_preR_preS_p, Control_preR_preS_p_adj
+    ),
+    by = c("symbol", "ensembl")
   )
 
 log2FC_table <- log2FC_table %>% 
@@ -4524,6 +4957,8 @@ length(intersect(data$symbol, log2FC_table$symbol))
 ```
 
 ## B Connectivity score (GSEA) on sister conserved genes
+
+### Treatments
 
 ```{r include=FALSE}
 treatments <- c("Carbo", "NK", "Olaparib")
@@ -4812,7 +5247,115 @@ for (t in treatments) {
 }
 ```
 
+### Control sample
+
+```{r include=FALSE}
+treatments <- c("Control")
+
+data_merge <- data %>% 
+  left_join(
+    log2FC_table,
+    by = "symbol"
+  ) %>% 
+  filter(conserve_gene == TRUE)
+drugs <- colnames(data)[-1]
+
+df <- NULL
+set.seed(123)
+
+for (i in drugs){
+  
+  drug_signature <- data_merge[[i]]
+  names(drug_signature) <- data_merge$symbol
+  drug_signature <- na.omit(drug_signature)
+  
+  # preR-preS
+  
+  preR_signature <- data_merge$Control_log2FC_preR_preS
+  names(preR_signature) <- data_merge$symbol
+  preR_signature <- na.omit(preR_signature)
+  
+  connect <- connectivityScore(
+    x = drug_signature,
+    y = preR_signature,
+    method = "fgsea",
+    nperm = 1000
+  )
+ 
+  tmp <- data.frame(
+    drug = i,
+    connectivity_score_log2FC_preR_preS = connect[1],
+    connectivity_p_log2FC_preR_preS = connect[2],
+    connectivity_n_log2FC_preR_preS = length(preR_signature)
+  )
+  
+  # filter by preR-preS adjusted p < 0.05 (only one gene left after filtering, so we can not get the connectivity score withthis setting)
+  # data_tmp <- data_merge[data_merge$Control_preR_preS_p_adj < 0.05, ]
+  # 
+  # drug_signature <- data_tmp[[i]]
+  # names(drug_signature) <- data_tmp$symbol
+  # drug_signature <- na.omit(drug_signature)
+  # 
+  # # preR-preS
+  # 
+  # preR_signature <- data_tmp$Control_log2FC_preR_preS
+  # names(preR_signature) <- data_tmp$symbol
+  # preR_signature <- na.omit(preR_signature)
+  # 
+  # connect <- connectivityScore(
+  #   x = drug_signature,
+  #   y = preR_signature,
+  #   method = "fgsea",
+  #   nperm = 1000
+  # )
+  # 
+  # tmp$connectivity_score_log2FC_preR_preS_p_adj = connect[1]
+  # tmp$connectivity_p_log2FC_preR_preS_p_adj = connect[2]
+  # tmp$connectivity_n_log2FC_preR_preS_p_adj = length(preR_signature)
+  # 
+  # filter by preR-preS p < 0.05
+  data_tmp <- data_merge[data_merge$Control_preR_preS_p < 0.05, ]
+  drug_signature <- data_tmp[[i]]
+  names(drug_signature) <- data_tmp$symbol
+  drug_signature <- na.omit(drug_signature)
+  
+  # preR-preS
+  
+  preR_signature <- data_tmp$Control_log2FC_preR_preS
+  names(preR_signature) <- data_tmp$symbol
+  preR_signature <- na.omit(preR_signature)
+  
+  connect <- connectivityScore(
+    x = drug_signature,
+    y = preR_signature,
+    method = "fgsea",
+    nperm = 1000
+  )
+  
+  tmp$connectivity_score_log2FC_preR_preS_p = connect[1]
+  tmp$connectivity_p_log2FC_preR_preS_p = connect[2]
+  tmp$connectivity_n_log2FC_preR_preS_p = length(preR_signature)
+  
+  df <- rbind.data.frame(df, tmp)
+}
+df <- df %>%
+  left_join(
+    drug_anno_match,
+    by = c("drug" = "match_id")
+  )
+write.csv(
+  df,
+  paste0(
+    sub_output_dir,
+    t,
+    "_connectivity_score_preR_vs_drug_signature_sister_conserved_control_sample.csv"
+    ),
+  row.names = FALSE)
+```
+
 ### Visualization - Volcano plot
+
+#### PreR-PreS adjusted by growth control
 
 ```{r}
 volcano_sub_dir <- paste0(sub_output_dir, "volcano_plot/")
@@ -5424,6 +5967,12 @@ for (t in treatments){
     p,
     width = 4.5,
     height = 4.5
+  )
+    ggsave(
+    paste0(volcano_sub_dir, t, "_connectivity_preR_preS_p_sister_conserved_volcano_large.pdf"),
+    p,
+    width = 6,
+    height = 6
   )
 }
 ```
@@ -6678,6 +7227,8 @@ for (t in treatments){
 
 ### Fig 4E/Fig S7 Scatter plot
 
+#### PreR-preS logFC adjusted by growth control
+
 ```{r}
 combo <- data.frame(
   drug1 = c(rep("Carbo", 2), rep("Olaparib", 8), rep("NK", 5)),
@@ -6774,6 +7325,219 @@ for (i in 1:nrow(combo)){
         ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], ".png"), p,
          width = 5, height = 5)
   ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], ".pdf"), p,
+         width = 5, height = 5)
+  }
+  
+}
+```
+
+#### PreR-preS logFC not adjusted by growth control
+
+```{r}
+rm(list = setdiff(ls(), c("output_dir", "red", "blue", "brown", "green", "purple", "red2", "blue2", "brown2", "green2","red2", "blue3", "hrd_color", "hrp_color", "hrd_vector_color")))
+sub_output_dir <- paste0(output_dir, "FigureS7/scatter_plot_original_log2FC/")
+if (!dir.exists(sub_output_dir)){
+  dir.create(sub_output_dir)
+}
+```
+
+```{r}
+sig <- read.csv("../data/output/Figure3/Figure3E_original_DEG/Figure3E_logFC_table_for_plots.csv") %>% 
+  dplyr::select(ensembl, symbol, Control_log2FC_preR_preS, Control_preR_preS_p, Control_preR_preS_p_adj) %>% 
+  right_join(
+    read.csv("../data/input/scRNA_seq_for_drug_signature/preR_preS_drug_signature_all.csv"),
+    by = c("ensembl", "symbol")
+  )
+ 
+con_score <- list(
+  Carbo = read.csv("../data/input/scRNA_seq_for_drug_signature/Carbo_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  Olaparib = read.csv("../data/input/scRNA_seq_for_drug_signature/Olaparib_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  NK = read.csv("../data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
+  )
+```
+
+```{r}
+combo <- data.frame(
+  drug1 = c(rep("Carbo", 2), rep("Olaparib", 8), rep("NK", 5)),
+  drug2 = c(
+    "Pevonedistat_hydrochloride_H",
+    "Pevonedistat_hydrochloride_L",
+    
+    "Pevonedistat_hydrochloride_H",
+    "Pevonedistat_hydrochloride_L",
+  "Ixazomib_citrate", "Carfilzomib", "Delanzomib", "Bortezomib",
+  "Pyrrolidinedithiocarbamate_ammonium", "Sitagliptin",
+  
+    "Pevonedistat_hydrochloride_H",
+    "Pevonedistat_hydrochloride_L",
+    "Nocodazole", "Clofarabine",
+    "GW843682X")
+)
+
+for (i in 1:nrow(combo)){
+  data_tmp <- sig[sig[[paste0(combo$drug1[i], "_preR_preS_p_adj")]] < 0.05, ]
+  plot_table <- data_tmp %>% 
+    dplyr::select(
+      preR = paste0(combo$drug1[i], "_log2FC_preR_preS"),
+      drug = paste0(combo$drug2[i], "_DMSO_log2FC")
+    ) %>% 
+    na.omit()
+  
+  connect_score <- con_score[[combo$drug1[i]]] %>% 
+    filter(drug == combo$drug2[i]) %>% 
+    select(connectivity_score_log2FC_preR_preS_p_adj) %>% 
+    unlist()
+  connect_p <- con_score[[combo$drug1[i]]] %>% 
+    filter(drug == combo$drug2[i]) %>% 
+    select(connectivity_p_log2FC_preR_preS_p_adj) %>% 
+    unlist()
+  
+  range <- range(
+      plot_table
+  )
+  range_x <- range(plot_table$preR)
+  range_y <- range(plot_table$drug)
+  p <- ggplot(
+    data = plot_table,
+    aes(
+      x = preR,
+      y = drug
+    )
+    ) +
+    geom_point(
+      color = "#3C548855",
+      size = 5,
+      show.legend = FALSE
+    ) +
+    # ylim(range) +
+    # xlim(range) +
+    # geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = 0, linetype = "dashed") + 
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    annotate(
+      geom = "text",
+      x = range_x[2] - (range_x[2] - range_x[1]) * 0.4,
+      y = range_y[2] - (range_y[2] - range_y[1]) * 0.1,
+      label = paste0(
+        "Connectivity score = ", signif(connect_score, 2), "\n",
+        ifelse(
+          connect_p == 0, "P < 2.2E-16",
+          paste0("P =", format(signif(connect_p, 2), scientific = T))
+        )
+      ),
+      size = 5.5
+    ) + 
+    labs(
+      x = paste0(gsub("Carbo", "Carboplatin", combo$drug1[i]), " preR vs preS"),
+      y = paste0(gsub("_", " ", combo$drug2[i]), " vs DMSO")
+    ) +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      axis.ticks.x = element_blank(),
+      axis.text = element_text(size = 21, colour = "black"),
+      axis.title = element_text(size = 21, colour = "black"),
+      plot.title = element_text(size = 21, hjust = 0.5, colour = "black", face = "bold")
+    )
+  p
+  if (
+    (combo$drug1[i] == "Carbo" & combo$drug2[i] == "Pevonedistat_hydrochloride_L")|
+    (combo$drug1[i] == "Olaparib" & combo$drug2[i] == "Ixazomib_citrate")|
+    (combo$drug1[i] == "NK" & combo$drug2[i] == "GW843682X")) {
+    ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p_adj.png"), p,
+         width = 4.5, height = 4.5)
+  ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p_adj.pdf"), p,
+         width = 4.5, height = 4.5)
+  } else {
+        ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p_adj.png"), p,
+         width = 5, height = 5)
+  ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p_adj.pdf"), p,
+         width = 5, height = 5)
+  }
+  
+}
+```
+
+
+```{r}
+for (i in 1:nrow(combo)){
+  data_tmp <- sig[sig[[paste0(combo$drug1[i], "_preR_preS_p")]] < 0.05, ]
+  plot_table <- data_tmp %>% 
+    dplyr::select(
+      preR = paste0(combo$drug1[i], "_log2FC_preR_preS"),
+      drug = paste0(combo$drug2[i], "_DMSO_log2FC")
+    ) %>% 
+    na.omit()
+  
+  connect_score <- con_score[[combo$drug1[i]]] %>% 
+    filter(drug == combo$drug2[i]) %>% 
+    select(connectivity_score_log2FC_preR_preS_p) %>% 
+    unlist()
+  connect_p <- con_score[[combo$drug1[i]]] %>% 
+    filter(drug == combo$drug2[i]) %>% 
+    select(connectivity_p_log2FC_preR_preS_p) %>% 
+    unlist()
+  
+  range <- range(
+      plot_table
+  )
+  range_x <- range(plot_table$preR)
+  range_y <- range(plot_table$drug)
+  p <- ggplot(
+    data = plot_table,
+    aes(
+      x = preR,
+      y = drug
+    )
+    ) +
+    geom_point(
+      color = "#3C548855",
+      size = 5,
+      show.legend = FALSE
+    ) +
+    # ylim(range) +
+    # xlim(range) +
+    # geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = 0, linetype = "dashed") + 
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    annotate(
+      geom = "text",
+      x = range_x[2] - (range_x[2] - range_x[1]) * 0.4,
+      y = range_y[2] - (range_y[2] - range_y[1]) * 0.1,
+      label = paste0(
+        "Connectivity score = ", signif(connect_score, 2), "\n",
+        ifelse(
+          connect_p == 0, "P < 2.2E-16",
+          paste0("P =", format(signif(connect_p, 2), scientific = T))
+        )
+      ),
+      size = 5.5
+    ) + 
+    labs(
+      x = paste0(gsub("Carbo", "Carboplatin", combo$drug1[i]), " preR vs preS"),
+      y = paste0(gsub("_", " ", combo$drug2[i]), " vs DMSO")
+    ) +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      axis.ticks.x = element_blank(),
+      axis.text = element_text(size = 21, colour = "black"),
+      axis.title = element_text(size = 21, colour = "black"),
+      plot.title = element_text(size = 21, hjust = 0.5, colour = "black", face = "bold")
+    )
+  p
+  if (
+    (combo$drug1[i] == "Carbo" & combo$drug2[i] == "Pevonedistat_hydrochloride_L")|
+    (combo$drug1[i] == "Olaparib" & combo$drug2[i] == "Ixazomib_citrate")|
+    (combo$drug1[i] == "NK" & combo$drug2[i] == "GW843682X")) {
+    ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p.png"), p,
+         width = 4.5, height = 4.5)
+  ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p.pdf"), p,
+         width = 4.5, height = 4.5)
+  } else {
+        ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p.png"), p,
+         width = 5, height = 5)
+  ggsave(paste0(sub_output_dir, "scatter_plot_", combo$drug1[i],"_", combo$drug2[i], "_log2FC_preR_preS_p.pdf"), p,
          width = 5, height = 5)
   }
   
