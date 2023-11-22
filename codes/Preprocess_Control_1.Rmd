@@ -805,8 +805,8 @@ merge@misc[['gene_meta']] <- merge_gene
 
 We will add a 'drugSens' column to the Seurat objects at_f, bt_f, and merge. The possible values of this variable are:
 
-* **pre-sensitive**: The cells in BT sample which have the perfect/partial matched cells (sisters) in the AT sample. It can only appear in BT samples.
-* **pre-resistant**: The cells in BT sample which does **not** perfect/partial match to any cells in the AT sample. It can only appear in BT samples.
+* **pre-resistant**: The cells in BT sample which have the perfect/partial matched cells (sisters) in the AT sample. It can only appear in BT samples.
+* **pre-sensitive**: The cells in BT sample which does **not** perfect/partial match to any cells in the AT sample. It can only appear in BT samples.
 * **resistant**: The cells in AT sample which have the perfect/partial matched cells (sisters) in the BT sample. It can only appear in AT samples.
 * **non**: The cells in AT sample which have lineage label but can not be matched to any cell in the BT sample. It can appear in AT samples.
 * **NA**: No labels are found in this cell. It can appear in both samples.
