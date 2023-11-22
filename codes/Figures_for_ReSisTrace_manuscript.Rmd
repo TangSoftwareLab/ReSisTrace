@@ -7141,7 +7141,8 @@ sig <- read.csv("../data/input/scRNA_seq_for_drug_signature/preR_preS_drug_signa
 con_score <- list(
   Carbo = read.csv("../data/input/scRNA_seq_for_drug_signature/Carbo_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
   Olaparib = read.csv("../data/input/scRNA_seq_for_drug_signature/Olaparib_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
-  NK = read.csv("../data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
+  NK = read.csv("../data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  Control = read.csv("../data/input/scRNA_seq_for_drug_signature/Control_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
   )
 ```
 
@@ -7342,39 +7343,43 @@ if (!dir.exists(sub_output_dir)){
 ```
 
 ```{r}
-sig <- read.csv("../data/output/Figure3/Figure3E_original_DEG/Figure3E_logFC_table_for_plots.csv") %>% 
-  dplyr::select(ensembl, symbol, Control_log2FC_preR_preS, Control_preR_preS_p, Control_preR_preS_p_adj) %>% 
-  right_join(
-    read.csv("../data/input/scRNA_seq_for_drug_signature/preR_preS_drug_signature_all.csv"),
-    by = c("ensembl", "symbol")
-  )
+sig <- read.csv("../data/input/scRNA_seq_for_drug_signature/preR_preS_drug_signature_all.csv")
  
 con_score <- list(
   Carbo = read.csv("../data/input/scRNA_seq_for_drug_signature/Carbo_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
   Olaparib = read.csv("../data/input/scRNA_seq_for_drug_signature/Olaparib_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
-  NK = read.csv("../data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
+  NK = read.csv("../data/input/scRNA_seq_for_drug_signature/NK_connectivity_score_preR_vs_drug_signature_sister_conserved.csv"),
+  Control = read.csv("../data/input/scRNA_seq_for_drug_signature/Control_connectivity_score_preR_vs_drug_signature_sister_conserved.csv")
   )
 ```
 
 ```{r}
 combo <- data.frame(
-  drug1 = c(rep("Carbo", 2), rep("Olaparib", 8), rep("NK", 5)),
+  drug1 = c(rep("Carbo", 2), rep("Olaparib", 8), rep("NK", 5), rep("Control", 11)),
   drug2 = c(
     "Pevonedistat_hydrochloride_H",
     "Pevonedistat_hydrochloride_L",
     
     "Pevonedistat_hydrochloride_H",
     "Pevonedistat_hydrochloride_L",
-  "Ixazomib_citrate", "Carfilzomib", "Delanzomib", "Bortezomib",
-  "Pyrrolidinedithiocarbamate_ammonium", "Sitagliptin",
+    "Ixazomib_citrate", "Carfilzomib", "Delanzomib", "Bortezomib",
+    "Pyrrolidinedithiocarbamate_ammonium", "Sitagliptin",
   
     "Pevonedistat_hydrochloride_H",
     "Pevonedistat_hydrochloride_L",
     "Nocodazole", "Clofarabine",
-    "GW843682X")
+    "GW843682X",
+
+    "Pevonedistat_hydrochloride_H",
+    "Pevonedistat_hydrochloride_L",
+    "Ixazomib_citrate", "Carfilzomib", "Delanzomib", "Bortezomib",
+    "Pyrrolidinedithiocarbamate_ammonium", "Sitagliptin",
+    "Nocodazole", "Clofarabine",
+    "GW843682X"
+  )
 )
 
-for (i in 1:nrow(combo)){
+for (i in 1:15){
   data_tmp <- sig[sig[[paste0(combo$drug1[i], "_preR_preS_p_adj")]] < 0.05, ]
   plot_table <- data_tmp %>% 
     dplyr::select(
@@ -7858,5 +7863,115 @@ for(i in unique(data$treatment)){
   print(t.test(data2.umap$layout[which(data$drugSens == "pre-resistant" & data$treatment == i), 1], data2.umap$layout[which(data$drugSens == "pre-sensitive" & data$treatment == i),1]))
   print(t.test(data2.umap$layout[which(data$drugSens == "pre-resistant" & data$treatment == i), 2], data2.umap$layout[which(data$drugSens == "pre-sensitive" & data$treatment == i),2]))
 }
+```
+
+## Supplementary data 2
+
+sister concordant genes
+
+```{r}
+conserve <- read.csv("../data/input/sister_concordant_gene/sum_exp_sister_conserve_gene_all_bt_sample_twin.csv") %>% 
+  select(ensembl, sister_concordant_gene = conserve_gene)
+```
+
+Non-adjusted preR-preS DEG
+
+```{r}
+deg <- read.csv("../data/input/DEG/deg_prer_pres_in_singleton_Carboplatin_intersection.csv") %>% 
+  mutate(
+    Carbo_log2FC_preR_preS = (Carbo_1_avg_log2FC + Carbo_2_avg_log2FC) / 2,
+    Carbo_preR_preS_p = (Carbo_1_p_val + Carbo_2_p_val) / 2,
+    Carbo_preR_preS_p_adj = (Carbo_1_p_val_adj + Carbo_2_p_val_adj) / 2
+  ) %>% 
+  select(
+    symbol, ensembl, Carbo_log2FC_preR_preS, Carbo_preR_preS_p,
+    Carbo_preR_preS_p_adj
+  ) %>% 
+  full_join(
+    read.csv("../data/input/DEG/deg_prer_pres_in_singleton_Olaparib_intersection.csv") %>% 
+    mutate(
+      Olaparib_log2FC_preR_preS = (Olaparib_1_avg_log2FC + Olaparib_2_avg_log2FC) / 2,
+      Olaparib_preR_preS_p = (Olaparib_1_p_val + Olaparib_2_p_val) / 2,
+      Olaparib_preR_preS_p_adj = (Olaparib_1_p_val_adj + Olaparib_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, Olaparib_log2FC_preR_preS, Olaparib_preR_preS_p,
+      Olaparib_preR_preS_p_adj
+    ),
+    by = c("symbol", "ensembl")
+  ) %>% 
+  full_join(
+    read.csv("../data/input/DEG/deg_prer_pres_in_singleton_NK_intersection.csv") %>% 
+    mutate(
+      NK_log2FC_preR_preS = (NK_1_avg_log2FC + NK_2_avg_log2FC) / 2,
+      NK_preR_preS_p = (NK_1_p_val + NK_2_p_val) / 2,
+      NK_preR_preS_p_adj = (NK_1_p_val_adj + NK_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, NK_log2FC_preR_preS, NK_preR_preS_p, NK_preR_preS_p_adj
+    ),
+    by = c("symbol", "ensembl")
+  ) %>% 
+  full_join(
+    read.csv("../data/input/DEG/deg_prer_pres_in_singleton_Control_intersection.csv") %>% 
+    mutate(
+      Control_log2FC_preR_preS = (scLT_ctrl_1_avg_log2FC + scLT_ctrl_2_avg_log2FC) / 2,
+      Control_preR_preS_p = (scLT_ctrl_1_p_val + scLT_ctrl_2_p_val) / 2,
+      Control_preR_preS_p_adj = (scLT_ctrl_1_p_val_adj + scLT_ctrl_2_p_val_adj) / 2
+    ) %>% 
+    select(
+      symbol, ensembl, Control_log2FC_preR_preS, Control_preR_preS_p, Control_preR_preS_p_adj
+    ),
+    by = c("symbol", "ensembl")
+  ) %>% 
+  full_join(conserve, by = "ensembl")
+```
+
+preR-preS DEG adjusted by growth control
+
+```{r}
+treatment <- c("Carbo", "Olaparib", "NK")
+for (t in treatment){
+  tmp <- read.csv(
+  paste0(
+    "../data/input/DEG_filter_by_bootstrap_permutation_in_singleton/prer_pres_",
+    t,
+    "_control_bootstrap_permutation_summary.csv")
+  )
+  tmp[[paste0(t, "_log2FC_preR_preS_adj")]] <- tmp$mean_log2FC_treat - tmp$mean_log2FC_ctrl
+  tmp[[paste0(t, "_boot_p")]] <- tmp[[paste0("boot_", t, "_ctrl_p_value")]]
+  tmp[[paste0(t, "_perm_p")]] <- tmp[[paste0("perm_", t, "_ctrl_p_value")]]
+  tmp <- tmp[, c("ensembl", "symbol", paste0(t, "_log2FC_preR_preS_adj"), paste0(t, "_boot_p"), paste0(t, "_perm_p"))]
+  if (is.null(deg)){
+    deg <- tmp
+  } else {
+    deg <- full_join(deg, tmp, by = c("ensembl", "symbol"))
+  }
+}
+
+```
+
+CNV subclone DEG
+
+```{r}
+for (s in LETTERS[1:5]){
+  CNV_deg <- read.csv(
+    paste0(
+      "../data/input/CNV_DEG/",
+      s,
+      "_vs_others_DEG.csv")
+    ) %>% 
+    select(X, avg_log2FC, p_val_adj)
+  colnames(CNV_deg) <- c("ensembl", paste0("log2FC_", s), paste0("p_adj_", s))
+  deg <- deg %>% 
+    full_join(CNV_deg, by = c("ensembl"))
+}
+```
+
+```{r}
+deg <- select(deg, ensembl, symbol, sister_concordant_gene, everything()) %>% 
+  filter(!is.na(sister_concordant_gene)) %>% 
+  filter(!is.na(symbol))
+writexl::write_xlsx(deg, "../data/inkscape/Nature Communication 3/Supplementary Data 2.xlsx")
 ```
 
